@@ -97,7 +97,6 @@ public:
               // ilist_s(pars.p.size()+ 1, 0),
               w(w_)
   {
-
     // Compute the length of the string;
     compute_n();
 

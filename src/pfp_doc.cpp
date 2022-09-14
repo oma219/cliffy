@@ -37,7 +37,11 @@ int build_main(int argc, char** argv) {
     print_build_status_info(&build_opts);
 
     // Build the input reference file, and bitvector labeling the end for each doc
+    STATUS_LOG("build_main", "building the reference file based on file-list");
+    auto start = std::chrono::system_clock::now();
+
     RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp);
+    DONE_LOG((std::chrono::system_clock::now() - start));
 
     // Determine the paths to the BigBWT executables
     HelperPrograms helper_bins;
@@ -46,13 +50,17 @@ int build_main(int argc, char** argv) {
     helper_bins.validate();
 
     // Parse the input text with BigBWT, and load it into pf object
+    STATUS_LOG("build_main", "generating the prefix-free parse for given reference");
+    start = std::chrono::system_clock::now();
+
     run_build_parse_cmd(&build_opts, &helper_bins);
     pf_parsing pf(build_opts.output_ref, build_opts.pfp_w);
+    DONE_LOG((std::chrono::system_clock::now() - start));
 
     // Builds the BWT, SA, LCP, and document array profiles and writes to a file
     STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
-
-    auto start = std::chrono::system_clock::now();
+    start = std::chrono::system_clock::now();
+    
     pfp_lcp lcp(pf, build_opts.output_ref, &ref_build);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
@@ -107,11 +115,7 @@ void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_
     if (build_opts->is_fasta) {command_stream << " -f";}
 
     //LOG(build_opts->verbose, "build_parse", ("Executing this command: " + command_stream.str()).data());
-    STATUS_LOG("build_parse", "generating the prefix-free parse for given reference");
-
-    auto start = std::chrono::system_clock::now();
     auto parse_log = execute_cmd(command_stream.str().c_str());
-    DONE_LOG((std::chrono::system_clock::now() - start));
     //OTHER_LOG(parse_log.data());
 }
 

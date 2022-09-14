@@ -184,8 +184,24 @@ public:
                     esa = (pf.pos_T[*curr_occ.first] - curr.suffix_length) % (pf.n - pf.w + 1ULL);
 
 
-                    // Start of the DA Profiles code ----------------------------------------------
+                    /* Start of the DA Profiles code */
+                    
                     //std::cout << curr_occ.second.second <<  " " << lcp_suffix << " " << ssa << " " << ref_build->doc_ends_rank(ssa) <<std::endl;
+                    //std::cout << "lcp_queue size = " << lcp_queue.size() << std::endl;
+
+                    /* Debugging
+                    if (lcp_queue.size() > 1000) {
+                        std::cout << lcp_queue[0] << std::endl;
+                        std::cout << ch_doc_counters[lcp_queue[0].bwt_ch][lcp_queue[0].doc_num] << std::endl;
+
+                        std::cout <<  ch_doc_counters['A'][0] << " " << ch_doc_counters['C'][0] << " " << ch_doc_counters['G'][0] << " " << ch_doc_counters['T'][0] << " " << std::endl;
+                        std::cout <<  ch_doc_counters['A'][1] << " " << ch_doc_counters['C'][1] << " " << ch_doc_counters['G'][1] << " " << ch_doc_counters['T'][1] << " " << std::endl;
+                        
+                        if (lcp_queue[0].bwt_ch == Dollar) std::cout << "It is a dollar" << std::endl;
+                        if (lcp_queue[0].bwt_ch == EndOfWord) std::cout << "It is End of Word" << std::endl;
+                        if (lcp_queue[0].bwt_ch == EndOfDict) std::cout << "It is End of Dict" << std::endl;
+                        //std::exit(1);
+                    } */
 
                     uint8_t curr_bwt_ch = curr_occ.second.second;
                     size_t lcp_i = lcp_suffix;
@@ -210,6 +226,7 @@ public:
                     lcp_queue.push_back(curr_entry);
                     ch_doc_counters[curr_bwt_ch][doc_of_LF_i] += 1;
 
+                    // Prepare variables to use during the lcp queue traversal
                     size_t min_lcp = lcp_i; // this is lcp with previous suffix
                     bool passed_same_document = false;
                     std::fill(docs_to_collect.begin(), docs_to_collect.end(), false);
@@ -269,7 +286,8 @@ public:
                     assert(lcp_queue_profiles.size() % ref_build->num_docs == 0);
                     assert(lcp_queue_profiles.size() == (lcp_queue.size() * ref_build->num_docs));
 
-                    // Try to trim the LCP queue and adjust the count matrix
+                    // Try to trim the LCP queue and adjust the count matrix ...
+                    // Method #1: non-heuristic by removing entries with multiples 
                     size_t curr_pos = 0;
                     size_t records_to_remove = 0;
                     while (curr_pos < lcp_queue.size()) {
@@ -278,19 +296,33 @@ public:
                         assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
                         // Means we cannot remove it from LCP queue
-                        if (ch_doc_counters[curr_ch][curr_doc] == 1)
+                        if (ch_doc_counters[curr_ch][curr_doc] == 1 && curr_ch != EndOfDict)
                             break;
                         else    
                             records_to_remove++;
                         curr_pos++;
                     }
 
+                    // Method #2: heuristic-based, remove records before a 
+                    // a small LCP value (7) since they are insignificant
+                    size_t records_to_remove_for_lcp = 0;
+                    curr_pos = 0;
+                    while (records_to_remove_for_lcp < lcp_queue.size()) {
+                        if (lcp_queue[records_to_remove_for_lcp++].lcp_with_prev_suffix <= 7)
+                            break;
+                    }
+                    records_to_remove_for_lcp = (records_to_remove_for_lcp == lcp_queue.size()) ? (0) : records_to_remove_for_lcp;
+                    
+                    // Take the maximum value from the two methods above, BUT
+                    // we cannot reduce the queue to empty because we need to 
+                    // make sure to update records that are the end of runs
+                    records_to_remove = std::max(records_to_remove, records_to_remove_for_lcp);
+                    records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
+
                     // Remove those top n elements, and update counts
                     update_lcp_queue(records_to_remove);
-
-                    // End of the DA Profiles code ----------------------------------------------
-                    // Except for some update statements below ...
-
+                    
+                    /* End of the DA Profiles code (except for some update statements below) */
 
                     // Update prevs
                     prev_occ = *curr_occ.first;
@@ -312,25 +344,6 @@ public:
                 inc(curr);
             }
         }
-
-        /* DEBUGGING PRINT STATEMENTS
-
-        std::cout << "\n====== after loop " << std::endl;
-        for (size_t i = 0; i < lcp_queue.size(); i++) {
-            std::cout << lcp_queue[i] << std::endl;
-        }
-
-        std::cout << "\n====== after loop " << std::endl;
-        size_t k = 0;
-        while (k < lcp_queue_profiles.size()) {
-            for (size_t l = 0; l < ref_build->num_docs; l++) {
-                std::cout << lcp_queue_profiles[k] << " "; 
-                k++;
-            }
-            std::cout << "\n";
-        }
-        */
-
         // print last BWT char and SA sample
         print_sa();
         print_bwt();
@@ -366,7 +379,6 @@ private:
     std::vector<std::vector<size_t>> ch_doc_counters;// (256, std::vector<size_t>(10, 0));
     
     size_t j = 0;
-
     size_t ssa = 0;
     size_t esa = 0;
     size_t num_docs = 0;
