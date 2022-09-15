@@ -19,13 +19,13 @@
                               std::fprintf(stderr, "\n\n"); std::exit(1);} while(0)
 #define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "Assertion Failed: %s\n", msg); \
                                                    std::exit(1);}} while(0)
-#define STATUS_LOG(x, ...) do {std::fprintf(stdout, "[%s] ", x); std::fprintf(stdout, __VA_ARGS__ ); \
-                               std::fprintf(stdout, " ... ");} while(0)
+#define STATUS_LOG(x, ...) do {std::fprintf(stderr, "[%s] ", x); std::fprintf(stderr, __VA_ARGS__ ); \
+                               std::fprintf(stderr, " ... ");} while(0)
 #define DONE_LOG(x) do {auto sec = std::chrono::duration<double>(x); \
-                        std::fprintf(stdout, "done.  (%.3f sec)\n", sec.count());} while(0)
-#define FORCE_LOG(func, ...)  do {std::fprintf(stdout, "[%s] ", func); \
-                                  std::fprintf(stdout, __VA_ARGS__); \
-                                  std::fprintf(stdout, "\n");} while (0)
+                        std::fprintf(stderr, "done.  (%.3f sec)\n", sec.count());} while(0)
+#define FORCE_LOG(func, ...)  do {std::fprintf(stderr, "[%s] ", func); \
+                                  std::fprintf(stderr, __VA_ARGS__); \
+                                  std::fprintf(stderr, "\n");} while (0)
 
 /* Function declations */
 int pfpdoc_usage();
