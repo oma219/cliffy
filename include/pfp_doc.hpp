@@ -27,6 +27,9 @@
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n");} while (0)
 
+// Defintions
+#define DOCWIDTH 5
+
 /* Function declations */
 int pfpdoc_usage();
 int build_main(int argc, char** argv);

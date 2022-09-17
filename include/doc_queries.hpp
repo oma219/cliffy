@@ -71,7 +71,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         size_t log_r = bitsize(uint64_t(this->r));
         size_t log_n = bitsize(uint64_t(this->bwt.size()));
 
-        FORCE_LOG("build_profiles", "bwt statistics: n = %d, r = %d" , this->bwt.size(), this->r);
+        FORCE_LOG("build_profiles", "bwt statistics: n = %d, r = %d\n" , this->bwt.size(), this->r);
 
         /*
         for (size_t i = 0; i < this->bwt.size(); i++) {
@@ -90,13 +90,12 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         if (fstat(fileno(fd), &filestat) < 0)
             error("stat() file " + tmp_filename + " failed");
-        ASSERT((filestat.st_size % 8 == 0), "invalid file size for document profiles.");
 
         num_docs = 0;
         if ((fread(&num_docs, sizeof(size_t), 1, fd)) != 1)
             error("fread() file " + tmp_filename + " failed"); 
         
-        ASSERT((filestat.st_size == ((num_docs * this->r * sizeof(size_t)) + 8)), "invalid file size.");
+        ASSERT((filestat.st_size == ((num_docs * this->r * DOCWIDTH) + 8)), "invalid file size.");
         fclose(fd);
         
         // initialize the document array profiles
@@ -124,20 +123,19 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         if (fstat(fileno(fd), &filestat) < 0)
             error("stat() file " + input_file + " failed");
-        ASSERT((filestat.st_size % 8 == 0), "invalid file size for document profiles.");
 
         size_t num_docs_found = 0;
         if ((fread(&num_docs_found, sizeof(size_t), 1, fd)) != 1)
             error("fread() file " + input_file + " failed"); 
 
         ASSERT((num_docs_found == num_docs), "mismatch in the number of documents.");
-        ASSERT((filestat.st_size == ((num_docs * prof_matrix.size() * sizeof(size_t)) + 8)), "invalid file size.");
+        ASSERT((filestat.st_size == ((num_docs * prof_matrix.size() * DOCWIDTH) + 8)), "invalid file size.");
 
         // Secondly, go through the rest of file and fill in the profiles
         size_t curr_val = 0;
         for (size_t i = 0; i < prof_matrix.size(); i++) {
             for (size_t j = 0; j < num_docs; j++) {
-                if ((fread(&curr_val, sizeof(size_t), 1, fd)) != 1)
+                if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                     error("fread() file " + input_file + " failed"); 
                 prof_matrix[i][j] = curr_val;
             }

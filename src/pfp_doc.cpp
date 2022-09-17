@@ -21,7 +21,6 @@
 #include <pfp.hpp>
 #include <pfp_lcp_doc.hpp>
 #include <doc_queries.hpp>
-//#include <ms_pointers.hpp>
 
 int build_main(int argc, char** argv) {
     /* main method for build the document profiles */
