@@ -145,11 +145,11 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
 
     // Build bitvector/rank support marking the end of each document
     doc_ends = sdsl::bit_vector(total_input_length, 0);
-    doc_ends_rank = sdsl::rank_support_v<1> (&doc_ends); 
     size_t curr_sum = 0;
 
     for (size_t i = 0; i < seq_lengths.size(); i++) {
         curr_sum += seq_lengths[i];
         doc_ends[curr_sum-1] = 1;
     }
+    doc_ends_rank = sdsl::rank_support_v<1> (&doc_ends); 
 }
