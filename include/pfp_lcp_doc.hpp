@@ -55,7 +55,7 @@ public:
 
     bool rle; // run-length encode the BWT
 
-    pfp_lcp(pf_parsing &pfp_, std::string filename, size_t test, RefBuilder* ref_build, bool rle_ = true) : 
+    pfp_lcp(pf_parsing &pfp_, std::string filename, size_t random_param, RefBuilder* ref_build, bool rle_ = true) : 
                 pf(pfp_),
                 min_s(1, pf.n),
                 pos_s(1,0),
@@ -64,6 +64,7 @@ public:
                 ch_doc_counters(256, std::vector<size_t>(ref_build->num_docs, 0)),
                 ch_doc_encountered(256, std::vector<bool>(ref_build->num_docs, false)),
                 predecessor_max_lcp(256, std::vector<size_t>(ref_build->num_docs, ref_build->total_length)),
+                queue_pos_per_tuple(256, std::vector<std::deque<size_t>>(ref_build->num_docs, std::deque<size_t>(0))),
                 rle(rle_)
                 // heads(1, 0)
     {        
@@ -186,30 +187,6 @@ public:
 
                     /* Start of the DA Profiles code */
                     
-                    //std::cout << curr_occ.second.second <<  " " << lcp_suffix << " " << ssa << " " << ref_build->doc_ends_rank(ssa) <<std::endl;
-                    //std::cout << "lcp_queue size = " << lcp_queue.size() << std::endl;
-
-                    /* Debugging
-                    if (lcp_queue.size() > 1000) {
-                        std::cout << lcp_queue[0] << std::endl;
-                        std::cout << ch_doc_counters[lcp_queue[0].bwt_ch][lcp_queue[0].doc_num] << std::endl;
-
-                        std::cout <<  ch_doc_counters['A'][0] << " " << ch_doc_counters['C'][0] << " " << ch_doc_counters['G'][0] << " " << ch_doc_counters['T'][0] << " " << std::endl;
-                        std::cout <<  ch_doc_counters['A'][1] << " " << ch_doc_counters['C'][1] << " " << ch_doc_counters['G'][1] << " " << ch_doc_counters['T'][1] << " " << std::endl;
-                        
-                        if (lcp_queue[0].bwt_ch == Dollar) std::cout << "It is a dollar" << std::endl;
-                        if (lcp_queue[0].bwt_ch == EndOfWord) std::cout << "It is End of Word" << std::endl;
-                        if (lcp_queue[0].bwt_ch == EndOfDict) std::cout << "It is End of Dict" << std::endl;
-                        //std::exit(1);
-                    } */
-                    //std::cout << lcp_queue.size() << std::endl;
-
-                    if (lcp_queue.size() > 500) {
-                        //for (auto elem: lcp_queue)
-                        //    std::cout << elem << std::endl;
-                        //std::exit(1);
-                    }
-
                     uint8_t curr_bwt_ch = curr_occ.second.second;
                     size_t lcp_i = lcp_suffix;
                     size_t sa_i = ssa;
@@ -255,13 +232,18 @@ public:
                     // Update the vector containing all the lcp values in queue
                     lcp_vals_in_queue.push_back(lcp_i);
 
+                    // Update the queue_pos lists for the current <ch, doc> pair
+                    queue_pos_per_tuple[curr_bwt_ch][doc_of_LF_i].push_back(pos);
+
                     // Update the predecessor max lcp structure with the current lcp
                     // so basiscally iterate through all values and take the min
+                    // FYI: this is the most time-consuming part of the construction
                     for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                         for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
                             predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], lcp_i);
                         }
                     }
+
                     // Reset the LCP with respect to the current <ch, doc> pair
                     predecessor_max_lcp[curr_bwt_ch][doc_of_LF_i] = ref_build->total_length - pos_of_LF_i;
 
@@ -274,7 +256,73 @@ public:
                             curr_da_profile[i] = predecessor_max_lcp[curr_bwt_ch][i] + 1;
                     }
 
+                    // Put together a list of queue positions to traverse. For
+                    // example for <A, 1> with 3 documents, we want to look at all
+                    // <A, 0> and <A, 2> records only until the last previous occurrence
+                    // of <A, 1>.
+                    auto merge_lists = [&](uint8_t curr_row_ch, size_t curr_row_doc) {
+                            std::vector<size_t> queue_pos_for_traversal;
+                            size_t curr_pos_list_size = queue_pos_per_tuple[curr_bwt_ch][curr_row_doc].size();
+
+                            // lower bound position is the previous occurrence of the same bwt ch and document
+                            // pair since we will not have max lcp with any suffixes above that suffix.
+                            size_t lower_bound = (curr_pos_list_size >= 2) ?
+                                                 queue_pos_per_tuple[curr_bwt_ch][curr_row_doc][curr_pos_list_size-2] :
+                                                 0;
+
+                            // Grab the last index for each list, and the documents # with non-zero
+                            // number of entries
+                            std::vector<size_t> docs_with_values;
+                            std::vector<int> iter_pos;
+                            for (size_t k = 0; k < num_docs; k++) {
+                                iter_pos.push_back(queue_pos_per_tuple[curr_row_ch][k].size()-1);
+                                if (queue_pos_per_tuple[curr_row_ch][k].size() && k != curr_row_doc)
+                                    docs_with_values.push_back(k);
+                            }
+                            
+                            // Merge position lists until we no longer find any positions 
+                            // above our lower bound position
+                            bool still_values_left = true;
+                            while (still_values_left) {
+                                still_values_left = false;
+                                for (auto curr_doc: docs_with_values) {
+                                    size_t queue_pos = 0;
+                                    if (iter_pos[curr_doc] >= 0 && 
+                                        (queue_pos = queue_pos_per_tuple[curr_row_ch][curr_doc][iter_pos[curr_doc]])>= lower_bound) 
+                                    {
+                                        queue_pos_for_traversal.push_back(queue_pos);
+                                        iter_pos[curr_doc]--;
+                                        still_values_left = true;
+                                    }
+                                }
+                            }    
+                            return queue_pos_for_traversal;
+                    };
+                    
+                    // Determine which queue positions we need to check and 
+                    // compute the lcp with.
+                    std::vector<size_t> queue_pos_for_traversal = merge_lists(curr_bwt_ch, doc_of_LF_i);
+
+                    // Go through all the necessary predecessor suffixes to 
+                    // update the profiles
+                    for (auto queue_pos: queue_pos_for_traversal) {
+                        size_t true_pos = queue_pos - num_records_ejected;
+
+                        ASSERT((lcp_queue[true_pos].bwt_ch == curr_bwt_ch), 
+                        "Issue occurred in doc profile construction");
+                        ASSERT((lcp_queue[true_pos].doc_num != doc_of_LF_i), 
+                        "Issue occurred in doc profile construction");
+
+                        size_t start_pos = ref_build->num_docs * true_pos;
+                        size_t curr_max_lcp = lcp_queue_profiles[start_pos + doc_of_LF_i];
+                        size_t min_lcp = *std::min_element(lcp_vals_in_queue.begin()+true_pos+1, 
+                                                           lcp_vals_in_queue.end());
+
+                        lcp_queue_profiles[start_pos + doc_of_LF_i] = std::max(curr_max_lcp, min_lcp+1);
+                    }
+                    
                     // get index before current suffix, use int for signedness
+                    /*
                     int queue_pos = lcp_queue.size() - 2; 
                     while (queue_pos >= 0 && (!all(docs_to_collect) || !passed_same_document)) 
                     {  
@@ -307,7 +355,10 @@ public:
                         
                         min_lcp = std::min(min_lcp, lcp_queue[queue_pos].lcp_with_prev_suffix);
                         queue_pos--;
+
+                        num_iterations++;
                     }
+                    */
 
                     // Add the current profile to the vector (should always be multiple of # of docs)
                     for (auto elem: curr_da_profile)
@@ -319,54 +370,61 @@ public:
                     // Try to trim the LCP queue and adjust the count matrix ...
                     // Method #1: non-heuristic by removing entries with multiples 
                     size_t curr_pos = 0;
-                    size_t records_to_remove = 0;
+                    size_t records_to_remove_method1 = 0;
                     while (curr_pos < lcp_queue.size()) {
                         uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
                         size_t curr_doc = lcp_queue[curr_pos].doc_num;
                         assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
-                        // Means we cannot remove it from LCP queue
-                        if (ch_doc_counters[curr_ch][curr_doc] == 1 && curr_ch != EndOfDict)
+                        size_t count = 0;
+                        for (size_t i = 0; i < num_docs; i++) {
+                            if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                count++;
+                        }
+
+                        if (count < (num_docs-1) && curr_ch != EndOfDict)
                             break;
-                        else    
-                            records_to_remove++;
+                        else
+                            records_to_remove_method1++;
                         curr_pos++;
                     }
-                    
+
                     // Method #2: non-heuristic, remove all the records starting
                     // from the the front of the queue where the smallest doc array
                     // profile value is larger than the current smallest lcp value in 
                     // queue, meaning that no successors rows will have the max lcp with
                     // these records.
-                    size_t curr_min = *std::min_element(lcp_vals_in_queue.begin(), lcp_vals_in_queue.end());
                     size_t records_to_remove_method2 = 0;
                     curr_pos = 0;
                     while (curr_pos < lcp_queue.size()) {
                         // Get the smallest LCP in the current profile we are looking at
                         size_t start_pos = ref_build->num_docs * curr_pos;
                         size_t curr_record_min_lcp = ref_build->total_length;
-                        for (size_t i = 0; i < num_docs; i++) {
+                        for (size_t i = 0; i < num_docs; i++) 
                             curr_record_min_lcp = std::min(lcp_queue_profiles[start_pos+i], curr_record_min_lcp);
-                        }
+                        
+                        // Smallest LCP from current record until end of queue
+                        size_t curr_min = *std::min_element(lcp_vals_in_queue.begin()+curr_pos+1, lcp_vals_in_queue.end());
 
                         // If the smallest value less than or equal to curr mininimum,
                         // then we cannot write it out.
-                        if (curr_record_min_lcp <= curr_min)
+                        if (curr_record_min_lcp <= curr_min && lcp_queue[curr_pos].bwt_ch != EndOfDict)
                             break;
-                        else {
-                            curr_pos++; records_to_remove_method2++;
-                        }
+                        else 
+                            records_to_remove_method2++;
+                        curr_pos++; 
                     }
 
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
                     // make sure to update records that are the end of runs
-                    records_to_remove = std::max(records_to_remove, records_to_remove_method2);
+                    size_t records_to_remove = std::max(records_to_remove_method1, records_to_remove_method2);
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
 
-                    
+            
                     // Method #3: heuristic-based, remove records before a 
                     // a small LCP value (7) since they are insignificant
+                    /*
                     size_t records_to_remove_for_lcp = 0;
                     curr_pos = 0;
                     while (records_to_remove_for_lcp < lcp_queue.size()) {
@@ -378,13 +436,14 @@ public:
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
                     // make sure to update records that are the end of runs
+
                     records_to_remove = std::max(records_to_remove, records_to_remove_for_lcp);
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
-                    
+                    */
 
                     // Remove those top n elements, and update counts
                     update_lcp_queue(records_to_remove);
-                    
+                  
                     /* End of the DA Profiles code (except for some update statements below) */
 
                     // Update prevs
@@ -407,6 +466,7 @@ public:
                 inc(curr);
             }
         }
+
         // print last BWT char and SA sample
         print_sa();
         print_bwt();
@@ -422,8 +482,10 @@ public:
             fclose(bwt_file_len);
     }
 
-    // Original constructor:
-    // Before copying it and trying to adapt build
+    // Original constructor: The main difference is that it will iterate through 
+    // the ALL the queue positions to compute max LCP with predecessor and successor
+    // while the new constructor, will compute predecessor using a table and iterate
+    // through queue to find the max lcp with successor rows.
     pfp_lcp(pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, bool rle_ = true) : 
                 pf(pfp_),
                 min_s(1, pf.n),
@@ -556,7 +618,7 @@ public:
 
 
                     /* Start of the DA Profiles code */
-                    
+
                     //std::cout << curr_occ.second.second <<  " " << lcp_suffix << " " << ssa << " " << ref_build->doc_ends_rank(ssa) <<std::endl;
                     //std::cout << "lcp_queue size = " << lcp_queue.size() << std::endl;
 
@@ -615,6 +677,9 @@ public:
                             return found_all;
                     };
 
+                    // Update the vector containing all the lcp values in queue
+                    lcp_vals_in_queue.push_back(lcp_i);
+
                     // get index before current suffix, use int for signedness
                     int queue_pos = lcp_queue.size() - 2; 
                     while (queue_pos >= 0 && (!all(docs_to_collect) || !passed_same_document)) 
@@ -661,21 +726,29 @@ public:
                     // Method #1: non-heuristic by removing entries with multiples 
                     size_t curr_pos = 0;
                     size_t records_to_remove = 0;
+                    
                     while (curr_pos < lcp_queue.size()) {
                         uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
                         size_t curr_doc = lcp_queue[curr_pos].doc_num;
                         assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
+                        size_t count = 0;
+                        for (size_t i = 0; i < num_docs; i++) {
+                            if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                count++;
+                        }
+
                         // Means we cannot remove it from LCP queue
-                        if (ch_doc_counters[curr_ch][curr_doc] == 1 && curr_ch != EndOfDict)
-                            break;
-                        else    
+                        if ((ch_doc_counters[curr_ch][curr_doc] > 1 && (count == num_docs - 1))  || (curr_ch == EndOfDict))
                             records_to_remove++;
+                        else    
+                            break;
                         curr_pos++;
                     }
 
                     // Method #2: heuristic-based, remove records before a 
                     // a small LCP value (7) since they are insignificant
+                    /*
                     size_t records_to_remove_for_lcp = 0;
                     curr_pos = 0;
                     while (records_to_remove_for_lcp < lcp_queue.size()) {
@@ -683,11 +756,42 @@ public:
                             break;
                     }
                     records_to_remove_for_lcp = (records_to_remove_for_lcp == lcp_queue.size()) ? (0) : records_to_remove_for_lcp;
-                    
+                    */
+
+                    // Method #2: non-heuristic, remove all the records starting
+                    // from the the front of the queue where the smallest doc array
+                    // profile value is larger than the current smallest lcp value in 
+                    // queue, meaning that no successors rows will have the max lcp with
+                    // these records.
+                    /*
+                    size_t records_to_remove_method2 = 0;
+                    curr_pos = 0;
+                    while (curr_pos < lcp_queue.size()) {
+                        // Get the smallest LCP in the current profile we are looking at
+                        size_t start_pos = ref_build->num_docs * curr_pos;
+                        size_t curr_record_min_lcp = ref_build->total_length;
+                        for (size_t i = 0; i < num_docs; i++) 
+                            curr_record_min_lcp = std::min(lcp_queue_profiles[start_pos+i], curr_record_min_lcp);
+                        
+                        // Smallest LCP from current record until end of queue
+                        size_t curr_min = *std::min_element(lcp_vals_in_queue.begin()+curr_pos+1, lcp_vals_in_queue.end());
+
+                        // If the smallest value less than or equal to curr mininimum,
+                        // then we cannot write it out.
+                        if (curr_record_min_lcp <= curr_min && lcp_queue[curr_pos].bwt_ch != EndOfDict)
+                            break;
+                        else 
+                            records_to_remove_method2++;
+                        curr_pos++; 
+                    } */ 
+
+
+
+
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
                     // make sure to update records that are the end of runs
-                    records_to_remove = std::max(records_to_remove, records_to_remove_for_lcp);
+                    //records_to_remove = std::max(records_to_remove, records_to_remove_method2);
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
 
                     // Remove those top n elements, and update counts
@@ -740,8 +844,13 @@ private:
         uint8_t bwt_char = 0;
     } phrase_suffix_t;
 
+    // Contains the positions in the lcp_queue for each
+    // <ch, doc> pair. This allows us to only traverse 
+    // entries that are relevant to the current row.
+    std::vector<std::vector<std::deque<size_t>>> queue_pos_per_tuple;
+
     // Data-structure to maintain all the lcp values currently in queue
-    std::vector <size_t> lcp_vals_in_queue;
+    std::deque<size_t> lcp_vals_in_queue;
 
     // Data-structure to store the max LCP with respect to all previous <ch, doc> pairs
     std::vector<std::vector<size_t>> predecessor_max_lcp;
@@ -749,19 +858,24 @@ private:
     // Each entry in this will represent a row in BWM
     std::deque<queue_entry_t> lcp_queue;
 
-    // The ith continguous group of num_doc integers is a profile for lcp_queue[i]
+    // This structure contains the raw document array profile values. The 
+    // ith continguous group of num_doc integers is a profile for lcp_queue[i]
     std::deque<size_t> lcp_queue_profiles;
 
-    // matrix of counters (alphabet size * number of documents) for the <ch, doc> pairs in lcp_queue
+    // matrix of counters (alphabet size * number of documents) for the 
+    // <ch, doc> pairs in lcp_queue, used for trimming method #1
     std::vector<std::vector<size_t>> ch_doc_counters;
 
-    // matrix of <ch, doc> pairs that keep track of which pairs we have seen so far
+    // matrix of <ch, doc> pairs that keep track of which pairs 
+    // we have seen so far. This is used when we initialize
+    // the curr_da_profile with the max lcps with previous lcps
     std::vector<std::vector<bool>> ch_doc_encountered;
 
     size_t j = 0;
     size_t ssa = 0;
     size_t esa = 0;
     size_t num_docs = 0;
+    size_t num_records_ejected = 0;
 
     FILE *sdap_file; // start of document array profiles
     FILE *edap_file; // end of document array profiles
@@ -778,6 +892,8 @@ private:
             bool is_start = lcp_queue[i].is_start;
             bool is_end = lcp_queue[i].is_end;
 
+            num_records_ejected++;
+
             /*
             if (is_end) {
                 std::cout << "----------------- FINAL PROFILE: ";
@@ -791,9 +907,9 @@ private:
                 size_t prof_val = lcp_queue_profiles.front();
                 lcp_queue_profiles.pop_front();
 
-                if (is_start && fwrite(&prof_val, sizeof(prof_val), 1, sdap_file) != 1)
+                if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
                     error("SA write error 1");
-                if (is_end && fwrite(&prof_val, sizeof(prof_val), 1, edap_file) != 1)
+                if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
                     error("SA write error 1");
             }
         }
@@ -810,12 +926,13 @@ private:
 
             // Update <ch, doc> count matrix
             ch_doc_counters[curr_ch][curr_doc] -= 1;
+
+            // Update the queue position lists
+            num_records_ejected++;
+            queue_pos_per_tuple[curr_ch][curr_doc].pop_front();
             
-            // Update the lcp value in the queue vector
-            auto it = std::find(lcp_vals_in_queue.begin(), lcp_vals_in_queue.end(), lcp_queue[0].lcp_with_prev_suffix);
-            ASSERT((it != lcp_vals_in_queue.end()), "Could not find lcp value in the queue.");
-            lcp_vals_in_queue.erase(it);
-            
+            // Update the lcp value in the queue vector, and the queue_entry
+            lcp_vals_in_queue.pop_front();
             lcp_queue.pop_front();
             
             /*
@@ -824,16 +941,16 @@ private:
                 for (size_t j = 0; j < num_docs; j++)
                     std::cout << lcp_queue_profiles[j] << " ";
                 std::cout << "\n";
-            }*/
+            } */
 
             // remove the DA profile, and print if it's a boundary
             for (size_t j = 0; j < num_docs; j++) {
                 size_t prof_val = lcp_queue_profiles.front();
                 lcp_queue_profiles.pop_front();
 
-                if (is_start && fwrite(&prof_val, sizeof(prof_val), 1, sdap_file) != 1)
+                if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
                     error("SA write error 1");
-                if (is_end && fwrite(&prof_val, sizeof(prof_val), 1, edap_file) != 1)
+                if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
                     error("SA write error 1");
             }
         }
