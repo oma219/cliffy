@@ -289,6 +289,45 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         return l;
     }
 
+    size_t serialize(std::ostream &out, std::ostream &out_bwt, int read_length, 
+                     sdsl::structure_tree_node *v = nullptr, std::string name = "") {
+        /* serializes data-structures to disk for seeing index size */
+
+        // Build int-vectors to write to disk ...
+        size_t max_width = (read_length == 0) ? (DOCWIDTH * 8) : std::ceil(std::log2(read_length));
+        max_width = std::min(static_cast<size_t>(DOCWIDTH * 8), max_width);
+
+        std::cout << "\n";
+        FORCE_LOG("serialize", "writing doc profiles to disk where each entry is %d bits", max_width);
+
+        sdsl::int_vector<> start_da_profiles (this->r * num_docs, 0, max_width);
+        sdsl::int_vector<> end_da_profiles (this->r * num_docs, 0, max_width);
+
+        size_t iter_pos = 0;
+        for (size_t i = 0; i < start_doc_profiles.size(); i++) {
+            for (size_t j = 0; j < num_docs; j++) {
+                start_da_profiles[iter_pos] = start_doc_profiles[i][j];
+                end_da_profiles[iter_pos] = end_doc_profiles[i][j];
+                iter_pos++;
+            }
+        }
+
+        // Start to write data to files ...
+        sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+        size_t written_bytes = 0;
+
+        out.write((char *)&this->num_docs, sizeof(this->num_docs));
+        written_bytes += sizeof(this->num_docs);
+        written_bytes += start_da_profiles.serialize(out);
+        written_bytes += end_da_profiles.serialize(out);
+
+        written_bytes += this->bwt.serialize(out_bwt);
+
+        FORCE_LOG("serialize", "finished writing index to *.docprofiles and *.docprofiles.bwt files");
+
+        return written_bytes;
+    }
+
 };
 
 #endif /* end of include guard:_DOC_QUERIES_H */

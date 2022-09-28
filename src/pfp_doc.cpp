@@ -86,6 +86,14 @@ int run_main(int argc, char** argv) {
     auto start = std::chrono::system_clock::now();
     doc_queries_obj.query_profiles(run_opts.pattern_file);
     DONE_LOG((std::chrono::system_clock::now() - start));
+    
+    // write index to disk
+    std::string outfile = run_opts.ref_file + ".docprofiles";
+    std::string outfile_bwt = run_opts.ref_file + ".docprofiles.bwt";
+    std::ofstream out(outfile), out_bwt(outfile_bwt);
+
+    doc_queries_obj.serialize(out, out_bwt, run_opts.read_length);
+    out.close(); out_bwt.close();
     std::cout << "\n";
     
     return 0;
