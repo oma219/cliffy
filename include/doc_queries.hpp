@@ -176,6 +176,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
             std::vector<size_t> curr_profile (this->num_docs, 0);
 
+            listings_fd << ">" << seq->name.s << "\n";
+
             for (int i = (seq->seq.l-1); i >= 0; i--) {
                 uint8_t next_ch = seq->seq.s[i];
                 //std::cout << next_ch << std::endl;
