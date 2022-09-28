@@ -71,6 +71,7 @@ struct PFPDocRunOptions {
     public:
         std::string ref_file = "";
         std::string pattern_file = "";
+        int read_length = 0;
     
     void validate() {
         /* checks arguments and makes sure they are valid files */
@@ -79,6 +80,10 @@ struct PFPDocRunOptions {
         // check the input files
         if (!is_file(ref_file) || !is_file(pattern_file))
             FATAL_ERROR("At least one of the input files is not valid.");
+        
+        // check that the upper bound on the read length is positive
+        if (read_length < 0)
+            FATAL_ERROR("Length of read must be positive.");
 
         // check the index files
         if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len")

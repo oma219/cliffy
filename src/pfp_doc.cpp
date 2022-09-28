@@ -206,11 +206,12 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
 void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
     /* parses the arguments for the run sub-command, and returns struct */
     int c = 0;
-    while ((c = getopt(argc, argv, "hr:p:")) >= 0) {
+    while ((c = getopt(argc, argv, "hr:p:l:")) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
             case 'p': opts->pattern_file.assign(optarg); break;
+            case 'l': opts->read_length = std::atoi(optarg); break;
             default: pfpdoc_run_usage(); std::exit(1);
         }
     }
@@ -239,7 +240,8 @@ int pfpdoc_run_usage() {
     std::fprintf(stdout, "Options:\n");
     std::fprintf(stdout, "\t%-10sprints this usage message\n", "-h");
     std::fprintf(stdout, "\t%-10spath to the input reference file\n", "-r [arg]");
-    std::fprintf(stdout, "\t%-10spath to the pattern file\n\n", "-p [arg]");
+    std::fprintf(stdout, "\t%-10spath to the pattern file\n", "-p [arg]");
+    std::fprintf(stdout, "\t%-10supper-bound on read length (used to shrink size of index)\n\n", "-l [arg]");
     
     return 0;
 }
