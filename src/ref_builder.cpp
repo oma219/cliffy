@@ -87,8 +87,6 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
     size_t curr_id_seq_length = 0;
     for (auto iter = input_files.begin(); iter != input_files.end(); ++iter) {
 
-        std::cout << *iter << std::endl;
-
         fp = fopen((*iter).data(), "r"); 
         if(fp == 0) {std::exit(1);}
 
