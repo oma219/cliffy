@@ -18,6 +18,7 @@
 #include <r_index.hpp>
 #include <ms_rle_string.hpp>
 #include <pfp_doc.hpp>
+#include <string>
 
 template <class sparse_bv_type = ri::sparse_sd_vector,
           class rle_string_t = ms_rle_string_sd>
@@ -158,12 +159,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         // lambda to print out the document listing
         auto process_profile = [&](std::vector<size_t> profile, size_t length) {
                 std::vector<size_t> docs_found;
-                listings_fd << "{";
+                std::string output_str = "{";
+
                 for (size_t i = 0; i < profile.size(); i++) {
                     if (profile[i] >= length)
-                        listings_fd << i << ",";
+                        output_str += "," + std::to_string(i);
                 }
-                listings_fd << "}";
+                output_str = "{" + output_str.substr(2) + "} ";
+                listings_fd << output_str;
         };
 
         // Process each read, and print out the document lists
@@ -179,20 +182,24 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             listings_fd << ">" << seq->name.s << "\n";
 
+            // Perform backward search and report document listings when
+            // range goes empty or we reach the end
             for (int i = (seq->seq.l-1); i >= 0; i--) {
                 uint8_t next_ch = seq->seq.s[i];
 
                 size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
                 size_t num_ch_before_end = this->bwt.rank(end, next_ch);
+                size_t start_run = this->bwt.run_of_position(start);
+                size_t end_run = this->bwt.run_of_position(end-1);
                 
                 //std::cout << next_ch << std::endl;
                 //std::cout << "start = " << start << ", end = " << end << std::endl;
-                if (this->bwt.run_of_position(start) != this->bwt.run_of_position(end-1)) 
+                if (start_run != end_run) 
                 {
                     //size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
                     //size_t num_ch_before_end = this->bwt.rank(end, next_ch);
-
                     //std::cout << "num_before_start = " << num_ch_before_start << ", num_before_end = " << num_ch_before_end << std::endl;
+                    
                     // bwt range is empty, so will reset start and end
                     if (num_ch_before_end == num_ch_before_start) {
                         listings_fd << "(" << i << "," << end_pos_of_match << "] ";
@@ -200,19 +207,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         end_pos_of_match = i;
 
                         start = 0; end = this->bwt.size();
+                        start_run = 0; end_run = this->r - 1;
                         num_ch_before_start = 0;
                         num_ch_before_end = this->bwt.number_of_letter(next_ch);
                     }
 
-                    // jump to last run boundary in the bwt range
-                    size_t pos_of_last_char = this->bwt.select(num_ch_before_end-1, next_ch);
-                    size_t run_of_last_char = this->bwt.run_of_position(pos_of_last_char);
-
-                    // grab the document array profile of the jumped to run boundary
-                    if (run_of_last_char != this->bwt.run_of_position(end-1))
-                        curr_profile = end_doc_profiles[run_of_last_char]; // makes copy
-                    else    
-                        curr_profile = start_doc_profiles[run_of_last_char];
+                    // grab profile at first run boundary in the bwt range
+                    size_t pos_of_first_char = this->bwt.select(num_ch_before_start, next_ch);
+                    size_t run_of_first_char = this->bwt.run_of_position(pos_of_first_char);
+                    curr_profile = start_doc_profiles[run_of_first_char];
                 } 
                 // range is within BWT run, but wrong character 
                 else if (this->bwt[start] != next_ch) 
@@ -222,18 +225,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     end_pos_of_match = i;
 
                     start = 0; end = this->bwt.size();
+                    start_run = 0; end_run = this->r - 1;
                     num_ch_before_start = 0;
                     num_ch_before_end = this->bwt.number_of_letter(next_ch);
 
-                    // jump to last run boundary in the bwt range
-                    size_t pos_of_last_char = this->bwt.select(num_ch_before_end-1, next_ch);
-                    size_t run_of_last_char = this->bwt.run_of_position(pos_of_last_char);
-
-                    // grab the document array profile of the jumped to run boundary
-                    if (run_of_last_char != this->bwt.run_of_position(end-1))
-                        curr_profile = end_doc_profiles[run_of_last_char]; // makes copy
-                    else    
-                        curr_profile = start_doc_profiles[run_of_last_char];
+                    // grab any profile at the start of first run of next_ch in range
+                    size_t pos_of_first_char = this->bwt.select(num_ch_before_start, next_ch);
+                    size_t run_of_first_char = this->bwt.run_of_position(pos_of_first_char);
+                    curr_profile = start_doc_profiles[run_of_first_char];
                 }
                 // range is within BWT run, and is the correct character
                 else 
@@ -243,8 +242,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
 
                 // Perform an LF step
-                //start = LF(start, next_ch);
-                //end = LF(end, next_ch);
                 start = num_ch_before_start + this->F[next_ch]; 
                 end = num_ch_before_end + this->F[next_ch];
             }
