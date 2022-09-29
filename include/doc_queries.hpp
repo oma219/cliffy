@@ -163,7 +163,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     if (profile[i] >= length)
                         listings_fd << i << ",";
                 }
-                listings_fd << '\b' << "}  ";
+                listings_fd << "}";
         };
 
         // Process each read, and print out the document lists
