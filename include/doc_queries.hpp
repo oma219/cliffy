@@ -181,13 +181,16 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             for (int i = (seq->seq.l-1); i >= 0; i--) {
                 uint8_t next_ch = seq->seq.s[i];
+
+                size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
+                size_t num_ch_before_end = this->bwt.rank(end, next_ch);
                 
                 //std::cout << next_ch << std::endl;
                 //std::cout << "start = " << start << ", end = " << end << std::endl;
                 if (this->bwt.run_of_position(start) != this->bwt.run_of_position(end-1)) 
                 {
-                    size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
-                    size_t num_ch_before_end = this->bwt.rank(end, next_ch);
+                    //size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
+                    //size_t num_ch_before_end = this->bwt.rank(end, next_ch);
 
                     //std::cout << "num_before_start = " << num_ch_before_start << ", num_before_end = " << num_ch_before_end << std::endl;
                     // bwt range is empty, so will reset start and end
@@ -219,8 +222,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     end_pos_of_match = i;
 
                     start = 0; end = this->bwt.size();
-                    size_t num_ch_before_start = 0;
-                    size_t num_ch_before_end = this->bwt.number_of_letter(next_ch);
+                    num_ch_before_start = 0;
+                    num_ch_before_end = this->bwt.number_of_letter(next_ch);
 
                     // jump to last run boundary in the bwt range
                     size_t pos_of_last_char = this->bwt.select(num_ch_before_end-1, next_ch);
@@ -240,8 +243,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
 
                 // Perform an LF step
-                start = LF(start, next_ch);
-                end = LF(end, next_ch);
+                //start = LF(start, next_ch);
+                //end = LF(end, next_ch);
+                start = num_ch_before_start + this->F[next_ch]; 
+                end = num_ch_before_end + this->F[next_ch];
             }
             listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
             process_profile(curr_profile, end_pos_of_match+1);
