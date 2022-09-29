@@ -159,9 +159,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         auto process_profile = [&](std::vector<size_t> profile, size_t length) {
                 std::vector<size_t> docs_found;
                 listings_fd << "{";
-                for (size_t i = 0; i < profile.size(); i++)
+                for (size_t i = 0; i < profile.size(); i++) {
                     if (profile[i] >= length)
                         listings_fd << i << ",";
+                }
                 listings_fd << '\b' << "}  ";
         };
 
@@ -180,6 +181,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             for (int i = (seq->seq.l-1); i >= 0; i--) {
                 uint8_t next_ch = seq->seq.s[i];
+                
                 //std::cout << next_ch << std::endl;
                 //std::cout << "start = " << start << ", end = " << end << std::endl;
                 if (this->bwt.run_of_position(start) != this->bwt.run_of_position(end-1)) 
@@ -242,7 +244,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 end = LF(end, next_ch);
             }
             listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
-            process_profile(curr_profile, end_pos_of_match);
+            process_profile(curr_profile, end_pos_of_match+1);
             listings_fd << "\n";
         }
 
