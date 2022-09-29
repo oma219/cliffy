@@ -87,6 +87,8 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
     size_t curr_id_seq_length = 0;
     for (auto iter = input_files.begin(); iter != input_files.end(); ++iter) {
 
+        std::cout << *iter << std::endl;
+
         fp = fopen((*iter).data(), "r"); 
         if(fp == 0) {std::exit(1);}
 
@@ -138,7 +140,8 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
     // Add 1 to last document for $ and find total length
     size_t total_input_length = 0;
     seq_lengths[seq_lengths.size()-1] += 1; // for $
-    total_input_length = std::accumulate(seq_lengths.begin(), seq_lengths.end(), 0);
+    for (auto length: seq_lengths)
+        total_input_length += length;
     
     this->total_length = total_input_length;
     this->num_docs = seq_lengths.size();

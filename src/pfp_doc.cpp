@@ -38,7 +38,7 @@ int build_main(int argc, char** argv) {
     // Build the input reference file, and bitvector labeling the end for each doc
     STATUS_LOG("build_main", "building the reference file based on file-list");
     auto start = std::chrono::system_clock::now();
-
+    
     RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
