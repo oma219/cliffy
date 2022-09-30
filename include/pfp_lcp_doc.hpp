@@ -659,7 +659,7 @@ public:
 
                     // Update the predecessor max lcp structure with the current lcp
                     // so basiscally iterate through all values and take the min
-                    // FYI: this is the most time-consuming part of the construction
+                    // FYI: this is one of the time-consuming part of the construction
                     for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                         for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
                             predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], lcp_i);
@@ -762,6 +762,9 @@ public:
                     avg_queue_length += lcp_queue.size();
                     total_pos_traversed += queue_pos_for_traversal.size();
 
+                    if (lcp_queue.size() >= MAXQUEUELENGTH)
+                        FATAL_ERROR("queue length during construction grew too large");
+
                     //start = std::chrono::system_clock::now();
                     
                     // Add the current profile to the vector (should always be multiple of # of docs)
@@ -786,10 +789,14 @@ public:
                                 count++;
                         }
 
-                        if (count < (num_docs-1) && curr_ch != EndOfDict)
-                            break;
-                        else
+                        if (count == (num_docs-1))
                             records_to_remove_method1++;
+                        // TODO: generalize this to take into account characters that only occur once
+                        else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                && curr_ch != 'G' && curr_ch != 'T'))
+                            records_to_remove_method1++;
+                        else
+                            break;
                         curr_pos++;
                     }
                     

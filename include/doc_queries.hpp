@@ -72,13 +72,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         size_t log_r = bitsize(uint64_t(this->r));
         size_t log_n = bitsize(uint64_t(this->bwt.size()));
 
-        FORCE_LOG("build_profiles", "bwt statistics: n = %d, r = %d\n" , this->bwt.size(), this->r);
-
-        /*
-        for (size_t i = 0; i < this->bwt.size(); i++) {
-            std::cout << " i = " << i << "   run # = " << this->bwt.run_of_position(i) << std::endl;
-        }
-        */
+        FORCE_LOG("build_profiles", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
         
         // determine the number of documents to initialize doc profiles
         std::string tmp_filename = filename + ".sdap";
@@ -160,12 +154,18 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         auto process_profile = [&](std::vector<size_t> profile, size_t length) {
                 std::vector<size_t> docs_found;
                 std::string output_str = "{";
+                bool found_one = false;
 
                 for (size_t i = 0; i < profile.size(); i++) {
-                    if (profile[i] >= length)
+                    if (profile[i] >= length) {
                         output_str += "," + std::to_string(i);
+                        found_one = true;
+                    }
                 }
-                output_str = "{" + output_str.substr(2) + "} ";
+                if (found_one)
+                    output_str = "{" + output_str.substr(2) + "} ";
+                else    
+                    output_str = "{} ";
                 listings_fd << output_str;
         };
 

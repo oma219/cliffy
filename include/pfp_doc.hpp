@@ -29,6 +29,7 @@
 
 // Defintions
 #define DOCWIDTH 5
+#define MAXQUEUELENGTH 1000000
 
 /* Function declations */
 int pfpdoc_usage();
