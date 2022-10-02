@@ -1323,7 +1323,14 @@ private:
                 std::cout << "\n";
             }*/
 
-            // remove the DA profile, and print if it's a boundary
+            // remove the DA profile, and print if it's a boundary.
+            // The format for each entry is print out the character of this run
+            // followed by all the DA entries in DOCWIDTH bytes.
+            if (is_start && fwrite(&curr_ch, 1, 1, sdap_file) != 1)
+                FATAL_ERROR("issue occurred while writing to *.sdap file");
+            if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
+                FATAL_ERROR("issue occurred while writing to *.edap file");
+
             for (size_t j = 0; j < num_docs; j++) {
                 size_t prof_val = lcp_queue_profiles.front();
                 lcp_queue_profiles.pop_front();
@@ -1364,7 +1371,14 @@ private:
                 std::cout << "\n";
             } */
 
-            // remove the DA profile, and print if it's a boundary
+            // remove the DA profile, and print if it's a boundary.
+            // The format for each entry is print out the character of this run
+            // followed by all the DA entries in DOCWIDTH bytes.
+            if (is_start && fwrite(&curr_ch, 1, 1, sdap_file) != 1)
+                FATAL_ERROR("issue occurred while writing to *.sdap file");
+            if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
+                FATAL_ERROR("issue occurred while writing to *.edap file");
+                
             for (size_t j = 0; j < num_docs; j++) {
                 size_t prof_val = lcp_queue_profiles.front();
                 lcp_queue_profiles.pop_front();
