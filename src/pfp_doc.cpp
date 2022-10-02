@@ -88,12 +88,14 @@ int run_main(int argc, char** argv) {
     DONE_LOG((std::chrono::system_clock::now() - start));
     
     // write index to disk
-    std::string outfile = run_opts.ref_file + ".docprofiles";
-    std::string outfile_bwt = run_opts.ref_file + ".docprofiles.bwt";
-    std::ofstream out(outfile), out_bwt(outfile_bwt);
+    if (run_opts.write_to_file) {
+        std::string outfile = run_opts.ref_file + ".docprofiles";
+        std::string outfile_bwt = run_opts.ref_file + ".docprofiles.bwt";
+        std::ofstream out(outfile), out_bwt(outfile_bwt);
 
-    doc_queries_obj.serialize(out, out_bwt, run_opts.read_length);
-    out.close(); out_bwt.close();
+        doc_queries_obj.serialize(out, out_bwt, run_opts.read_length);
+        out.close(); out_bwt.close();
+    }
     std::cout << "\n";
     
     return 0;
@@ -214,12 +216,13 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
 void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
     /* parses the arguments for the run sub-command, and returns struct */
     int c = 0;
-    while ((c = getopt(argc, argv, "hr:p:l:")) >= 0) {
+    while ((c = getopt(argc, argv, "hr:p:l:s")) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
             case 'p': opts->pattern_file.assign(optarg); break;
             case 'l': opts->read_length = std::atoi(optarg); break;
+            case 's': opts->write_to_file = true; break;
             default: pfpdoc_run_usage(); std::exit(1);
         }
     }
@@ -249,7 +252,8 @@ int pfpdoc_run_usage() {
     std::fprintf(stdout, "\t%-10sprints this usage message\n", "-h");
     std::fprintf(stdout, "\t%-10spath to the input reference file\n", "-r [arg]");
     std::fprintf(stdout, "\t%-10spath to the pattern file\n", "-p [arg]");
-    std::fprintf(stdout, "\t%-10supper-bound on read length (used to shrink size of index)\n\n", "-l [arg]");
+    std::fprintf(stdout, "\t%-10swrite data-structures to disk\n", "-s");
+    std::fprintf(stdout, "\t%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l [arg]");
     
     return 0;
 }

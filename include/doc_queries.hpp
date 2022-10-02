@@ -136,7 +136,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             if (fread(&curr_bwt_ch, 1, 1, fd) != 1)
                 FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
-            
+
             std::vector<size_t> curr_profile (num_docs, 0);
             for (size_t j = 0; j < num_docs; j++) {
                 if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
@@ -321,7 +321,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                      sdsl::structure_tree_node *v = nullptr, std::string name = "") {
         /* serializes data-structures to disk for seeing index size */
 
-        /*
         // Build int-vectors to write to disk ...
         size_t max_width = (read_length == 0) ? (DOCWIDTH * 8) : std::ceil(std::log2(read_length));
         max_width = std::min(static_cast<size_t>(DOCWIDTH * 8), max_width);
@@ -332,13 +331,40 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         sdsl::int_vector<> start_da_profiles (this->r * num_docs, 0, max_width);
         sdsl::int_vector<> end_da_profiles (this->r * num_docs, 0, max_width);
 
-        size_t iter_pos = 0;
-        for (size_t i = 0; i < start_doc_profiles.size(); i++) {
-            for (size_t j = 0; j < num_docs; j++) {
-                start_da_profiles[iter_pos] = start_doc_profiles[i][j];
-                end_da_profiles[iter_pos] = end_doc_profiles[i][j];
-                iter_pos++;
+        // Fill in the integer vectors in order BWT runs
+        bool is_start = false, is_end = false;
+        uint8_t prev_ch = 0, curr_ch = 0;
+
+        size_t n = this->bwt.size();
+        size_t curr_run_num  = 0;
+        std::vector<size_t> ch_pos (256, 0);
+        
+        std::vector<size_t> curr_start_profile(num_docs, 0);
+        std::vector<size_t> curr_end_profile(num_docs, 0);
+
+        for (size_t i = 0; i < n; i++){
+            // Determine if we have started a new run
+            curr_ch = this->bwt[i];
+            is_start = (curr_ch != prev_ch);
+            prev_ch = curr_ch;
+
+            // Grab the profiles at the start and end of this run (if it is)
+            if (is_start) {
+                curr_ch = (curr_ch == 1) ? 0 : curr_ch; // TODO: figure out why $ is 1, but placed in 0
+                size_t curr_pos = ch_pos[curr_ch];
+
+                curr_start_profile = start_doc_profiles[curr_ch][curr_pos];
+                curr_end_profile = end_doc_profiles[curr_ch][curr_pos];
+
+                // Write the profiles to the int vectors
+                size_t start_pos = curr_run_num * num_docs;
+                for (size_t j = 0; j < num_docs; j++) {
+                    start_da_profiles[start_pos + j] = curr_start_profile[j];
+                    end_da_profiles[start_pos + j] = curr_end_profile[j]; 
+                }
+                curr_run_num++; ch_pos[curr_ch]++;
             }
+            is_start = false;
         }
 
         // Start to write data to files ...
@@ -349,14 +375,11 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         written_bytes += sizeof(this->num_docs);
         written_bytes += start_da_profiles.serialize(out);
         written_bytes += end_da_profiles.serialize(out);
-
         written_bytes += this->bwt.serialize(out_bwt);
 
         FORCE_LOG("serialize", "finished writing index to *.docprofiles and *.docprofiles.bwt files");
-        */
-        return 0;
-        //return written_bytes;
-
+        
+        return written_bytes;
     }
 
 };

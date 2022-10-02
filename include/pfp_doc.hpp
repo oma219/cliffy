@@ -73,6 +73,7 @@ struct PFPDocRunOptions {
         std::string ref_file = "";
         std::string pattern_file = "";
         int read_length = 0;
+        bool write_to_file = false;
     
     void validate() {
         /* checks arguments and makes sure they are valid files */
