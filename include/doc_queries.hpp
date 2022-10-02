@@ -9,9 +9,6 @@
 #ifndef _DOC_QUERIES_H
 #define _DOC_QUERIES_H
 
-//#include <common.hpp>
-//#include <malloc_count.h>
-
 #include <kseq.h>
 #include <sdsl/rmq_support.hpp>
 #include <sdsl/int_vector.hpp>
@@ -27,12 +24,19 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
     public:
 
     size_t num_docs = 0;
-    std::vector<std::vector<size_t>> start_doc_profiles;
-    std::vector<std::vector<size_t>> end_doc_profiles;
+
+    // This vectors has the following dimensions: [256][num of ith char][num_docs]
+    // This structure stores the DA profiles for each
+    // character separately.
+    std::vector<std::vector<std::vector<size_t>>> start_doc_profiles;
+    std::vector<std::vector<std::vector<size_t>>> end_doc_profiles;
 
     typedef size_t size_type;
 
-    doc_queries(std::string filename, bool rle = true): ri::r_index<sparse_bv_type, rle_string_t>()
+    doc_queries(std::string filename, bool rle = true): 
+            ri::r_index<sparse_bv_type, rle_string_t>(),
+            start_doc_profiles(256, std::vector<std::vector<size_t>>(0, std::vector<size_t>(0))),
+            end_doc_profiles(256, std::vector<std::vector<size_t>>(0, std::vector<size_t>(0)))
     {
         std::string bwt_fname = filename + ".bwt";
 
@@ -74,7 +78,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         FORCE_LOG("build_profiles", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
         
-        // determine the number of documents to initialize doc profiles
+        // determine the number of documents and verify the that file
+        // sizes are correct.
         std::string tmp_filename = filename + ".sdap";
 
         struct stat filestat;
@@ -90,24 +95,20 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         if ((fread(&num_docs, sizeof(size_t), 1, fd)) != 1)
             error("fread() file " + tmp_filename + " failed"); 
         
-        ASSERT((filestat.st_size == ((num_docs * this->r * DOCWIDTH) + 8)), "invalid file size.");
+        ASSERT((filestat.st_size == ((num_docs * this->r * DOCWIDTH) + sizeof(size_t) + this->r)), "invalid file size.");
         fclose(fd);
         
-        // initialize the document array profiles
-        start_doc_profiles.resize(this->r, std::vector<size_t>(num_docs, 0));
-        end_doc_profiles.resize(this->r, std::vector<size_t>(num_docs, 0));
-
         // load the profiles for starts and ends
         STATUS_LOG("build_profiles", "loading the document array profiles");
         start = std::chrono::system_clock::now();
 
-        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs);
-        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs);
+        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r);
+        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r);
 
         DONE_LOG((std::chrono::system_clock::now() - start));
     }
 
-    static void read_doc_profiles(std::vector<std::vector<size_t>>& prof_matrix, std::string input_file, size_t num_docs) {
+    static void read_doc_profiles(std::vector<std::vector<std::vector<size_t>>>& prof_matrix, std::string input_file, size_t num_docs, size_t num_runs) {
         /* loads a set of document array profiles into their respective matrix */
 
         // First, lets open the file and verify the size/# of docs are valid
@@ -124,23 +125,32 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             error("fread() file " + input_file + " failed"); 
 
         ASSERT((num_docs_found == num_docs), "mismatch in the number of documents.");
-        ASSERT((filestat.st_size == ((num_docs * prof_matrix.size() * DOCWIDTH) + 8)), "invalid file size.");
+        ASSERT((filestat.st_size == ((num_docs * num_runs * DOCWIDTH) + sizeof(size_t) + num_runs)), "invalid file size.");
 
-        // Secondly, go through the rest of file and fill in the profiles
+        // Secondly, go through the rest of file and fill in the profiles. Each 
+        // profile will start with the BWT character which we will use figure out which
+        // list to put it in.
         size_t curr_val = 0;
-        for (size_t i = 0; i < prof_matrix.size(); i++) {
+        for (size_t i = 0; i < num_runs; i++) {
+            uint8_t curr_bwt_ch = 0;
+
+            if (fread(&curr_bwt_ch, 1, 1, fd) != 1)
+                FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
+            
+            std::vector<size_t> curr_profile (num_docs, 0);
             for (size_t j = 0; j < num_docs; j++) {
                 if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                     error("fread() file " + input_file + " failed"); 
-                prof_matrix[i][j] = curr_val;
+                curr_profile[j] = curr_val;
             }
+            prof_matrix[curr_bwt_ch].push_back(curr_profile);
         }
         fclose(fd);
     }
 
     void query_profiles(std::string pattern_file) {
         /* Takes in a file of reads, and lists all the documents containing the read */
-
+    
         // Open output/input files
         std::ofstream listings_fd (pattern_file + ".listings");
 
@@ -169,6 +179,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 listings_fd << output_str;
         };
 
+    
         // Process each read, and print out the document lists
         while (kseq_read(seq)>=0) {
             
@@ -182,6 +193,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             listings_fd << ">" << seq->name.s << "\n";
 
+            // Pointer variables to current profile being "used"
+            uint8_t curr_prof_ch = 0;
+            size_t curr_prof_pos = 0, num_LF_steps = 0;
+
             // Perform backward search and report document listings when
             // range goes empty or we reach the end
             for (int i = (seq->seq.l-1); i >= 0; i--) {
@@ -192,17 +207,16 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 size_t start_run = this->bwt.run_of_position(start);
                 size_t end_run = this->bwt.run_of_position(end-1);
                 
-                //std::cout << next_ch << std::endl;
-                //std::cout << "start = " << start << ", end = " << end << std::endl;
+                // range spans runs, so there are different BWT characters
                 if (start_run != end_run) 
-                {
-                    //size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
-                    //size_t num_ch_before_end = this->bwt.rank(end, next_ch);
-                    //std::cout << "num_before_start = " << num_ch_before_start << ", num_before_end = " << num_ch_before_end << std::endl;
-                    
+                {                    
                     // bwt range is empty, so will reset start and end
                     if (num_ch_before_end == num_ch_before_start) {
-                        listings_fd << "(" << i << "," << end_pos_of_match << "] ";
+                        // grab the current profile, and update with steps
+                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
+
+                        listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
                         process_profile(curr_profile, (end_pos_of_match-i));
                         end_pos_of_match = i;
 
@@ -212,15 +226,19 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         num_ch_before_end = this->bwt.number_of_letter(next_ch);
                     }
 
-                    // grab profile at first run boundary in the bwt range
-                    size_t pos_of_first_char = this->bwt.select(num_ch_before_start, next_ch);
-                    size_t run_of_first_char = this->bwt.run_of_position(pos_of_first_char);
-                    curr_profile = start_doc_profiles[run_of_first_char];
+                    // grab any profile at run boundary of next_ch (choose first one)
+                    curr_prof_ch = next_ch;
+                    curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
+                    num_LF_steps = 0;
                 } 
                 // range is within BWT run, but wrong character 
                 else if (this->bwt[start] != next_ch) 
                 {
-                    listings_fd << "(" << i << "," << end_pos_of_match << "] ";
+                    // grab the current profile, and update with steps
+                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
+
+                    listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
                     process_profile(curr_profile, (end_pos_of_match-i));
                     end_pos_of_match = i;
 
@@ -229,27 +247,31 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     num_ch_before_start = 0;
                     num_ch_before_end = this->bwt.number_of_letter(next_ch);
 
-                    // grab any profile at the start of first run of next_ch in range
-                    size_t pos_of_first_char = this->bwt.select(num_ch_before_start, next_ch);
-                    size_t run_of_first_char = this->bwt.run_of_position(pos_of_first_char);
-                    curr_profile = start_doc_profiles[run_of_first_char];
+                    // grab any profile at run boundary of next_ch (choose first one)
+                    curr_prof_ch = next_ch;
+                    curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
+                    num_LF_steps = 0;
                 }
                 // range is within BWT run, and is the correct character
                 else 
                 {
-                    std::transform(curr_profile.begin(), curr_profile.end(), curr_profile.begin(), 
-                                    [](size_t x) { return (++x); });   
+                    num_LF_steps++;
+                    //std::transform(curr_profile.begin(), curr_profile.end(), curr_profile.begin(), 
+                    //                [](size_t x) { return (++x); });   
                 }
 
                 // Perform an LF step
                 start = num_ch_before_start + this->F[next_ch]; 
                 end = num_ch_before_end + this->F[next_ch];
             }
+            // grab the current profile, and update with steps
+            curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+            std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
+
             listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
             process_profile(curr_profile, end_pos_of_match+1);
             listings_fd << "\n";
         }
-
     }
 
     vector<ulint> build_F_(std::ifstream &heads, std::ifstream &lengths)
@@ -299,6 +321,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                      sdsl::structure_tree_node *v = nullptr, std::string name = "") {
         /* serializes data-structures to disk for seeing index size */
 
+        /*
         // Build int-vectors to write to disk ...
         size_t max_width = (read_length == 0) ? (DOCWIDTH * 8) : std::ceil(std::log2(read_length));
         max_width = std::min(static_cast<size_t>(DOCWIDTH * 8), max_width);
@@ -330,8 +353,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         written_bytes += this->bwt.serialize(out_bwt);
 
         FORCE_LOG("serialize", "finished writing index to *.docprofiles and *.docprofiles.bwt files");
+        */
+        return 0;
+        //return written_bytes;
 
-        return written_bytes;
     }
 
 };
