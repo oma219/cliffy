@@ -125,6 +125,35 @@ class ms_rle_string : public ri::rle_string<sparse_bitvector_t, string_t>
         return this->runs_per_letter[c].size();
     }
 
+    /*
+     * The next three methods were added in order to support
+     * the new version of the thresholds data-structure that
+     * is bitvector-based.
+     */
+
+    // number of runs of character c in in position i
+    size_t run_head_rank(const size_t i, const uint8_t c) {
+        assert(i < this->R);
+        size_t j = this->run_heads.rank(i, c);
+        return j;
+    }
+
+    inline std::pair<size_t,size_t> run_and_head_rank(const size_t i, const uint8_t c) {
+        assert(i < this->R);
+        const size_t j = this->run_heads.rank(i, c);
+        if( j < 1)
+            return make_pair(j,j);
+        const size_t k = this->runs_per_letter[c].select(j - 1) + 1; // j-1 because the select is 0 based
+        return make_pair(j, k);
+    }
+
+    // Select the i-th run of c
+    size_t run_head_select(const size_t i, const uint8_t c) {
+        assert(i < this->R and i > 0);
+        return this->run_heads.select(i - 1, c);
+    }
+
+
     /* serialize the structure to the ostream
      * \param out     the ostream
      */
