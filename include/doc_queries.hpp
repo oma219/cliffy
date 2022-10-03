@@ -31,6 +31,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
     std::vector<std::vector<std::vector<size_t>>> start_doc_profiles;
     std::vector<std::vector<std::vector<size_t>>> end_doc_profiles;
 
+    std::vector<std::vector<size_t>> end_doc_profiles_two;
+
     typedef size_t size_type;
 
     doc_queries(std::string filename, bool rle = true): 
@@ -102,13 +104,27 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         STATUS_LOG("build_profiles", "loading the document array profiles");
         start = std::chrono::system_clock::now();
 
-        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r);
-        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r);
+
+        end_doc_profiles_two.resize(this->r, std::vector<size_t>(num_docs, 0));
+
+        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, end_doc_profiles_two);
+        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, end_doc_profiles_two);
+
+        
+        end_doc_profiles_two.resize(this->r, std::vector<size_t>(num_docs, 0));
+
+        /*
+        std::cout << "\n";
+        for (size_t i = 0; i < this->r; i++) {
+            std::cout << "i = " << i << " rank(A) = " << this->bwt.run_head_rank(i, 'A') << "  rank(C) = " << this->bwt.run_head_rank(i, 'C') << "  rank(G) = " << this->bwt.run_head_rank(i, 'G') << "  rank(T) = " << this->bwt.run_head_rank(i, 'T') << std::endl;
+        }
+        std::exit(1);
+        */
 
         DONE_LOG((std::chrono::system_clock::now() - start));
     }
 
-    static void read_doc_profiles(std::vector<std::vector<std::vector<size_t>>>& prof_matrix, std::string input_file, size_t num_docs, size_t num_runs) {
+    static void read_doc_profiles(std::vector<std::vector<std::vector<size_t>>>& prof_matrix, std::string input_file, size_t num_docs, size_t num_runs, std::vector<std::vector<size_t>>& end_doc_profiles_two) {
         /* loads a set of document array profiles into their respective matrix */
 
         // First, lets open the file and verify the size/# of docs are valid
@@ -142,6 +158,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                     error("fread() file " + input_file + " failed"); 
                 curr_profile[j] = curr_val;
+                end_doc_profiles_two[i][j] = curr_val;
             }
             prof_matrix[curr_bwt_ch].push_back(curr_profile);
         }
@@ -179,7 +196,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 listings_fd << output_str;
         };
 
-    
         // Process each read, and print out the document lists
         while (kseq_read(seq)>=0) {
             
@@ -197,6 +213,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             uint8_t curr_prof_ch = 0;
             size_t curr_prof_pos = 0, num_LF_steps = 0;
 
+            // Tell us what type of profile to grab based on pointer variables
+            bool use_start = false, use_end = false;
+
             // Perform backward search and report document listings when
             // range goes empty or we reach the end
             for (int i = (seq->seq.l-1); i >= 0; i--) {
@@ -209,11 +228,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 
                 // range spans runs, so there are different BWT characters
                 if (start_run != end_run) 
-                {                    
+                {       
                     // bwt range is empty, so will reset start and end
                     if (num_ch_before_end == num_ch_before_start) {
-                        // grab the current profile, and update with steps
-                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+
+                        // grab the correct current profile, and update with steps
+                        if (use_end)
+                            curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        else
+                            curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
                         std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
 
                         listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
@@ -230,12 +253,24 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     curr_prof_ch = next_ch;
                     curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
                     num_LF_steps = 0;
+                    use_start = false; use_end = false;
+
+                    // If the start position run is the same as query
+                    // ch, then we can guarantee that end of run is in the range
+                    // otherwise, we can guarantee the start of run is in range.
+                    if (this->bwt[start] == next_ch)
+                        use_end = true;
+                    else
+                        use_start = true;
                 } 
                 // range is within BWT run, but wrong character 
                 else if (this->bwt[start] != next_ch) 
                 {
-                    // grab the current profile, and update with steps
-                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    // grab the correct current profile, and update with steps
+                    if (use_end)
+                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    else
+                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
                     std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
 
                     listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
@@ -251,6 +286,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     curr_prof_ch = next_ch;
                     curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
                     num_LF_steps = 0;
+                    use_start = false; use_end = false;
+
+                    // If the start position run is the same as query
+                    // ch, then we can guarantee that end of run is in the range
+                    // otherwise, we can guarantee the start of run is in range.
+                    if (this->bwt[start] == next_ch)
+                        use_end = true;
+                    else
+                        use_start = true;
                 }
                 // range is within BWT run, and is the correct character
                 else 
@@ -265,7 +309,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 end = num_ch_before_end + this->F[next_ch];
             }
             // grab the current profile, and update with steps
-            curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+            if (use_end)
+                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+            else
+                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
             std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
 
             listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
