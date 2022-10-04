@@ -389,6 +389,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         std::vector<size_t> curr_start_profile(num_docs, 0);
         std::vector<size_t> curr_end_profile(num_docs, 0);
 
+        size_t max_poss_lcp = (read_length == 0) ? (std::pow(2, DOCWIDTH*8)-1) : read_length;
+
         for (size_t i = 0; i < n; i++){
             // Determine if we have started a new run
             curr_ch = this->bwt[i];
@@ -406,13 +408,17 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 // Write the profiles to the int vectors
                 size_t start_pos = curr_run_num * num_docs;
                 for (size_t j = 0; j < num_docs; j++) {
-                    start_da_profiles[start_pos + j] = curr_start_profile[j];
-                    end_da_profiles[start_pos + j] = curr_end_profile[j]; 
+                    start_da_profiles[start_pos + j] = std::min(curr_start_profile[j], max_poss_lcp);
+                    end_da_profiles[start_pos + j] = std::min(curr_end_profile[j], max_poss_lcp); 
                 }
                 curr_run_num++; ch_pos[curr_ch]++;
             }
             is_start = false;
         }
+
+        // Bit-compress (will mostly affect the size when not specifying the max read length)
+        sdsl::util::bit_compress(start_da_profiles);
+        sdsl::util::bit_compress(end_da_profiles);
 
         // Start to write data to files ...
         sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
