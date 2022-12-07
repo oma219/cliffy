@@ -266,16 +266,21 @@ int pfpdoc_usage() {
     std::fprintf(stderr, "Commands:\n");
     std::fprintf(stderr, "\tbuild\tbuilds the document profile data-structure\n");
     std::fprintf(stderr, "\trun\truns queries with respect to the document array structure\n\n");
+    //std::fprintf(stderr, "\tinfo\tprint out information regarding this index and document array\n\n")
     return 0;
 }
 
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
+    std::fprintf(stdout, "pfp-doc version: %s\n", PFPDOC_VERSION);
+
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 
             return build_main(argc-1, argv+1);
         else if (std::strcmp(argv[1], "run") == 0)
             return run_main(argc-1, argv+1);
+        //else if (std::strcmp(argv[1], "info") == 0)
+         //   return info_main(argc-1, argv+1);
     }
     return pfpdoc_usage();
 }

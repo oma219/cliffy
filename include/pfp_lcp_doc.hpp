@@ -474,7 +474,7 @@ public:
                 queue_pos_per_tuple(256, std::vector<std::deque<size_t>>(ref_build->num_docs, std::deque<size_t>(0))),
                 rle(rle_)
                 // heads(1, 0)
-    {        
+    {       
         // Opening output files
         std::string outfile = filename + std::string(".lcp");
         if ((lcp_file = fopen(outfile.c_str(), "w")) == nullptr)
@@ -774,30 +774,41 @@ public:
                     assert(lcp_queue_profiles.size() % ref_build->num_docs == 0);
                     assert(lcp_queue_profiles.size() == (lcp_queue.size() * ref_build->num_docs));
 
+
                     // Try to trim the LCP queue and adjust the count matrix ...
                     // Method #1: non-heuristic by removing entries with multiples 
+                    // Method #3: heuristic since we remove all entries above a small lcp value (7)
                     size_t curr_pos = 0;
-                    size_t records_to_remove_method1 = 0;
-                    while (curr_pos < lcp_queue.size()) {
+                    size_t records_to_remove_method1 = 0, records_to_remove_method3 = 0;
+                    bool method1_done = false, method3_done = false;
+                    if (pos % 10 == 0) {
+                    while (curr_pos < lcp_queue.size() && (!method1_done || !method3_done)) {
                         uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
                         size_t curr_doc = lcp_queue[curr_pos].doc_num;
                         assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
-                        size_t count = 0;
-                        for (size_t i = 0; i < num_docs; i++) {
-                            if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
-                                count++;
-                        }
+                        if (!method1_done) {
+                            size_t count = 0;
+                            for (size_t i = 0; i < num_docs; i++) {
+                                if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                    count++;
+                            }
 
-                        if (count == (num_docs-1))
-                            records_to_remove_method1++;
-                        // TODO: generalize this to take into account characters that only occur once
-                        else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
-                                && curr_ch != 'G' && curr_ch != 'T'))
-                            records_to_remove_method1++;
-                        else
-                            break;
+                            if (count == (num_docs-1))
+                                records_to_remove_method1++;
+                            // TODO: generalize this to take into account characters that only occur once
+                            else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                    && curr_ch != 'G' && curr_ch != 'T'))
+                                records_to_remove_method1++;
+                            else
+                                method1_done = true;
+                        }
+                        if (!method3_done) {
+                            if (lcp_queue[records_to_remove_method3++].lcp_with_prev_suffix <= 10)
+                                method3_done = true;
+                        }
                         curr_pos++;
+                    }
                     }
                     
                     
@@ -832,11 +843,31 @@ public:
                     //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
                     //times[5] += sec;
 
+
+                    // Method 3: Heuristic method to reduce the size of the LCP queue,
+                    // by iterating from the front of the queue and remove all the records
+                    // before a small lcp (<7) value
+                    //size_t records_to_remove_method3 = 0;
+                    /*
+                    curr_pos = 0;
+                    while (records_to_remove_method3 < lcp_queue.size()) {
+                        if (lcp_queue[records_to_remove_method3++].lcp_with_prev_suffix <= 5)
+                            break;
+                    }
+                    records_to_remove_method3 = (records_to_remove_method3 == lcp_queue.size()) ? (0) : records_to_remove_method3;
+                    */
+
+                    //std::cout << lcp_queue.size() << "   " <<  records_to_remove_method3 << std::endl;
+                    //std::cout << records_to_remove_method1 << "  " << records_to_remove_method2 << " " << records_to_remove_method3 << std::endl;
+                    
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
                     // make sure to update records that are the end of runs
-                    size_t records_to_remove = std::max(records_to_remove_method1, records_to_remove_method2);
+                    size_t records_to_remove = std::max(records_to_remove_method1, records_to_remove_method3);
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
+
+
+                    //std::cout << lcp_queue.size() << "   " << queue_pos_for_traversal.size() << "    " << records_to_remove << std::endl;
 
                     /*
                     if (records_to_remove_method1 > records_to_remove_method2)
