@@ -101,6 +101,23 @@ int run_main(int argc, char** argv) {
     return 0;
 }
 
+int info_main(int argc, char** argv) {
+    /* main method for info sub-command */
+    if (argc == 1) return pfpdoc_info_usage();
+    std::cout << "\n";
+
+    // grab the command-line options, and validate them
+    PFPDocInfoOptions info_opts;
+    parse_info_options(argc, argv, &info_opts);
+    info_opts.validate();
+
+    // build the doc_queries object (load data-structures)
+    doc_queries doc_queries_obj (info_opts.ref_file, info_opts.output_path, info_opts.num_profiles);
+    
+    return 0;
+}
+
+
 void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_bins) {
     // Generates and runs the command-line for executing the PFP of the reference 
     std::ostringstream command_stream;
@@ -228,6 +245,20 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
     }
 }
 
+void parse_info_options(int argc, char** argv, PFPDocInfoOptions* opts) {
+    /* parses the arguments for the info sub-command, and returns struct */
+    int c = 0;
+    while ((c = getopt(argc, argv, "hr:o:n:")) >= 0) {
+        switch(c) {
+            case 'h': pfpdoc_run_usage(); std::exit(1);
+            case 'r': opts->ref_file.assign(optarg); break;
+            case 'o': opts->output_path.assign(optarg); break;
+            case 'n': opts->num_profiles = std::max(0, std::atoi(optarg)); break;
+            default: pfpdoc_info_usage(); std::exit(1);
+        }
+    }
+}
+
 int pfpdoc_build_usage() {
     /* prints out the usage information for the build method */
     std::fprintf(stdout, "\npfp_doc build - builds the document array profiles using PFP.\n");
@@ -258,6 +289,21 @@ int pfpdoc_run_usage() {
     return 0;
 }
 
+int pfpdoc_info_usage() {
+    /* prints out the usage information for the info sub-command */
+    /* prints out the usage information for the run method */
+    std::fprintf(stdout, "\npfp_doc info - read in document array profiles and print information.\n");
+    std::fprintf(stdout, "Usage: pfp_doc info [options]\n\n");
+
+    std::fprintf(stdout, "Options:\n");
+    std::fprintf(stdout, "\t%-10sprints this usage message\n", "-h");
+    std::fprintf(stdout, "\t%-10soutput prefix used for index\n", "-r [arg]");
+    std::fprintf(stdout, "\t%-10soutput file path for printing document array profiles (csv format)\n", "-o [arg]");
+    std::fprintf(stdout, "\t%-10snumber of profiles to print if using -o\n\n", "-n [arg]");
+    
+    return 0;
+}
+
 int pfpdoc_usage() {
     /* Prints the usage information for pfp_doc */
     std::fprintf(stderr, "\npfp_doc has different sub-commands to run:\n");
@@ -265,8 +311,8 @@ int pfpdoc_usage() {
 
     std::fprintf(stderr, "Commands:\n");
     std::fprintf(stderr, "\tbuild\tbuilds the document profile data-structure\n");
-    std::fprintf(stderr, "\trun\truns queries with respect to the document array structure\n\n");
-    //std::fprintf(stderr, "\tinfo\tprint out information regarding this index and document array\n\n")
+    std::fprintf(stderr, "\trun\truns queries with respect to the document array structure\n");
+    std::fprintf(stderr, "\tinfo\tprint out information regarding this index and document array\n\n");
     return 0;
 }
 
@@ -279,8 +325,8 @@ int main(int argc, char** argv) {
             return build_main(argc-1, argv+1);
         else if (std::strcmp(argv[1], "run") == 0)
             return run_main(argc-1, argv+1);
-        //else if (std::strcmp(argv[1], "info") == 0)
-         //   return info_main(argc-1, argv+1);
+        else if (std::strcmp(argv[1], "info") == 0)
+            return info_main(argc-1, argv+1);
     }
     return pfpdoc_usage();
 }

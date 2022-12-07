@@ -36,14 +36,43 @@
 int pfpdoc_usage();
 int build_main(int argc, char** argv);
 int run_main(int argc, char** argv);
+int info_main(int argc, char** argv);
 int pfpdoc_build_usage();
 int pfpdoc_run_usage();
+int pfpdoc_info_usage();
 int is_file(std::string path);
 int is_dir(std::string path);
 std::vector<std::string> split(std::string input, char delim);
 bool is_integer(const std::string& str);
 bool endsWith(const std::string& str, const std::string& suffix);
 std::string execute_cmd(const char* cmd);
+
+
+struct PFPDocInfoOptions {
+    public:
+        std::string ref_file = "";
+        std::string output_path = "";
+        size_t num_profiles = 0;
+
+        void validate() {
+            /* checks the arguments and makes sure they are valid */
+            if (!ref_file.size())
+                FATAL_ERROR("An index prefix must be provided using the -r option.");
+            
+            // check the input files
+            ref_file += ".fna";
+            if (!is_file(ref_file))
+                FATAL_ERROR("The index prefix provided is not valid. %s does not exist.", ref_file.data());
+            std::filesystem::path p (output_path);
+            if (output_path.size() && !is_dir(p.parent_path().string()))
+                FATAL_ERROR("The output path for profiles is not valid.");  
+
+            // check the index files
+            if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len")
+                || !is_file(ref_file + ".sdap") || !is_file(ref_file + ".edap"))
+                FATAL_ERROR("At least one of the index files is not present.");
+        }
+};
 
 struct PFPDocBuildOptions {
     public:
@@ -121,6 +150,7 @@ public:
 /* Function Declartions involving structs */
 void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts);
 void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts);
+void parse_info_options(int argc, char** argv, PFPDocInfoOptions* opts);
 void print_build_status_info(PFPDocBuildOptions* opts);
 void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_bins);
 

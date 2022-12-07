@@ -31,11 +31,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
     std::vector<std::vector<std::vector<size_t>>> start_doc_profiles;
     std::vector<std::vector<std::vector<size_t>>> end_doc_profiles;
 
-    std::vector<std::vector<size_t>> end_doc_profiles_two;
+    // These vectors are just for conveinence of testing
+    // and visualizing. They are the document array 
+    // profiles but sequentially from top to bottom of BWT
+    std::vector<std::vector<size_t>> start_doc_profiles_seq;
+    std::vector<std::vector<size_t>> end_doc_profiles_seq;
 
     typedef size_t size_type;
 
-    doc_queries(std::string filename, bool rle = true): 
+    doc_queries(std::string filename, std::string output_path="", size_t num_profiles=0, bool rle = true): 
             ri::r_index<sparse_bv_type, rle_string_t>(),
             start_doc_profiles(256, std::vector<std::vector<size_t>>(0, std::vector<size_t>(0))),
             end_doc_profiles(256, std::vector<std::vector<size_t>>(0, std::vector<size_t>(0)))
@@ -104,27 +108,39 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         STATUS_LOG("build_profiles", "loading the document array profiles");
         start = std::chrono::system_clock::now();
 
+        start_doc_profiles_seq.resize(this->r, std::vector<size_t>(num_docs, 0));
+        end_doc_profiles_seq.resize(this->r, std::vector<size_t>(num_docs, 0));
 
-        end_doc_profiles_two.resize(this->r, std::vector<size_t>(num_docs, 0));
-
-        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, end_doc_profiles_two);
-        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, end_doc_profiles_two);
-
-        
-        end_doc_profiles_two.resize(this->r, std::vector<size_t>(num_docs, 0));
-
-        /*
-        std::cout << "\n";
-        for (size_t i = 0; i < this->r; i++) {
-            std::cout << "i = " << i << " rank(A) = " << this->bwt.run_head_rank(i, 'A') << "  rank(C) = " << this->bwt.run_head_rank(i, 'C') << "  rank(G) = " << this->bwt.run_head_rank(i, 'G') << "  rank(T) = " << this->bwt.run_head_rank(i, 'T') << std::endl;
-        }
-        std::exit(1);
-        */
+        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, start_doc_profiles_seq);
+        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, end_doc_profiles_seq);
 
         DONE_LOG((std::chrono::system_clock::now() - start));
+
+        //end_doc_profiles_two.resize(this->r, std::vector<size_t>(num_docs, 0));
+
+        // If the user wants to print out document array profiles ...
+        if (output_path.size()) {
+            FORCE_LOG("build_profiles", "number of documents: d = %ld" , this->num_docs);
+            size_t profiles_to_print = (num_profiles == 0 || num_profiles > this->r) ? this->r : num_profiles; 
+
+            // Write out the document profiles ...
+            std::ofstream sdap_csv_file (output_path+ ".sdap.csv");
+            std::ofstream edap_csv_file (output_path+ ".edap.csv");
+
+            for (size_t i = 0; i < profiles_to_print; i++) {
+                sdap_csv_file << start_doc_profiles_seq[i][0];
+                edap_csv_file << end_doc_profiles_seq[i][0];
+                for (size_t j=1; j < num_docs; j++) {
+                    sdap_csv_file << "," << start_doc_profiles_seq[i][j];
+                    edap_csv_file << "," << end_doc_profiles_seq[i][j];
+                }
+                sdap_csv_file  << "\n"; edap_csv_file  << "\n";
+            }
+            FORCE_LOG("build_profiles", "finished writing out the document array profiles.\n");
+        }
     }
 
-    static void read_doc_profiles(std::vector<std::vector<std::vector<size_t>>>& prof_matrix, std::string input_file, size_t num_docs, size_t num_runs, std::vector<std::vector<size_t>>& end_doc_profiles_two) {
+    static void read_doc_profiles(std::vector<std::vector<std::vector<size_t>>>& prof_matrix, std::string input_file, size_t num_docs, size_t num_runs, std::vector<std::vector<size_t>>& doc_profiles_seq) {
         /* loads a set of document array profiles into their respective matrix */
 
         // First, lets open the file and verify the size/# of docs are valid
@@ -158,7 +174,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                     error("fread() file " + input_file + " failed"); 
                 curr_profile[j] = curr_val;
-                end_doc_profiles_two[i][j] = curr_val;
+                doc_profiles_seq[i][j] = curr_val;
             }
             prof_matrix[curr_bwt_ch].push_back(curr_profile);
         }
