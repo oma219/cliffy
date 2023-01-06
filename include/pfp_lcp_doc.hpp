@@ -22,6 +22,10 @@ extern "C" {
 #include <deque>
 #include <vector>
 #include <bits/stdc++.h>
+#include <omp.h>
+#include <immintrin.h>
+#include <x86intrin.h>
+#include <emmintrin.h>
 
 // struct for LCP queue, along with method for printing (debugging)
 typedef struct
@@ -201,8 +205,6 @@ public:
 
                     /* Start of the DA Profiles code */
                     
-                    //start = std::chrono::system_clock::now();
-
                     uint8_t curr_bwt_ch = curr_occ.second.second;
                     size_t lcp_i = lcp_suffix;
                     size_t sa_i = ssa;
@@ -250,19 +252,6 @@ public:
                     // Update the queue_pos lists for the current <ch, doc> pair
                     queue_pos_per_tuple[curr_bwt_ch][doc_of_LF_i].push_back(pos);
 
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[0] += sec;
-
-
-                    //start = std::chrono::system_clock::now();
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[1] += sec;
-
-                    //start = std::chrono::system_clock::now();
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[2] += sec;
-
-
                     // Put together a list of queue positions to traverse. For
                     // example for <A, 1> with 3 documents, we want to look at all
                     // <A, 0> and <A, 2> records only until the last previous occurrence
@@ -281,17 +270,20 @@ public:
                             // number of entries
                             std::vector<size_t> docs_with_values;
                             std::vector<int> iter_pos;
+                            std::vector<bool> docs_seen(num_docs, true);
                             for (size_t k = 0; k < num_docs; k++) {
                                 iter_pos.push_back(queue_pos_per_tuple[curr_row_ch][k].size()-1);
-                                if (queue_pos_per_tuple[curr_row_ch][k].size())
+                                if (queue_pos_per_tuple[curr_row_ch][k].size()) {
                                     docs_with_values.push_back(k);
+                                    docs_seen[k] = false;
+                                }
                             }
                             
                             // Merge position lists until we no longer find any positions 
                             // above our lower bound position
                             bool still_values_left = true;
-                            while (still_values_left) {
-                                still_values_left = false;
+                            while (!all(docs_seen)) {
+                                //still_values_left = false;
                                 for (auto curr_doc: docs_with_values) {
                                     size_t queue_pos = 0;
                                     if (iter_pos[curr_doc] >= 0) 
@@ -299,7 +291,8 @@ public:
                                         queue_pos = queue_pos_per_tuple[curr_row_ch][curr_doc][iter_pos[curr_doc]];
                                         queue_pos_for_traversal.push_back(queue_pos);
                                         iter_pos[curr_doc]--;
-                                        still_values_left = true;
+                                        //still_values_left = true;
+                                        docs_seen[curr_doc] = true;
                                     }
                                 }
                             }    
@@ -307,8 +300,6 @@ public:
                             return queue_pos_for_traversal;
                     };
                    
-                    //start = std::chrono::system_clock::now();
-
                     // Determine which queue positions we need to check and 
                     // compute the lcp with.
                     std::vector<size_t> queue_pos_for_traversal = merge_lists(curr_bwt_ch, doc_of_LF_i);
@@ -316,10 +307,6 @@ public:
                            "Issue with merge_lists occurred");
                     queue_pos_for_traversal.erase(queue_pos_for_traversal.begin());
 
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[3] += sec;
-
-                    //start = std::chrono::system_clock::now();
 
                     // Go through all the necessary predecessor suffixes to 
                     // update the profiles
@@ -364,12 +351,9 @@ public:
                     }
                     avg_queue_length += lcp_queue.size();
                     total_pos_traversed += traversal_count;
-                    
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[4] += sec;
-                    
-                    //start = std::chrono::system_clock::now();
-                    
+
+                    //std::cout << lcp_queue.size() << "  " << queue_pos_for_traversal.size() << std::endl;
+                                        
                     // Add the current profile to the vector (should always be multiple of # of docs)
                     for (auto elem: curr_da_profile)
                         lcp_queue_profiles.push_back(elem);
@@ -386,20 +370,27 @@ public:
                         size_t curr_doc = lcp_queue[curr_pos].doc_num;
                         assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
-                        if (ch_doc_counters[curr_ch][curr_doc] == 1 && curr_ch != EndOfDict)
-                            break;
-                        else
+                        size_t count = 0;
+                        for (size_t i = 0; i < num_docs; i++) {
+                            if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                count++;
+                        }
+
+                        if (ch_doc_counters[curr_ch][curr_doc] >= 1 && count == (num_docs-1))
                             records_to_remove_method1++;
+                        // TODO: generalize this to take into account characters that only occur once
+                        else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                && curr_ch != 'G' && curr_ch != 'T'))
+                            records_to_remove_method1++;
+                        else
+                            break;
                         curr_pos++;
                     }
-                    
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[5] += sec;
 
                     // Makes sure the number of records to remove is not the 
                     // full queue
                     size_t records_to_remove = std::min(records_to_remove_method1, lcp_queue.size()-1);
-                    
+
                     // Remove those top n elements, and update counts
                     update_lcp_queue(records_to_remove);
                     
@@ -425,21 +416,6 @@ public:
                 inc(curr);
             }
         }
-
-        /*
-        std::cout << "\nTimes\n";
-        for (auto elem: times)
-            std::cout << elem << std::endl;
-
-        std::cout << "sum of queue lengths = " << avg_queue_length << "  num pos = " << pos << std::endl;
-        std::cout << "avg queue length = " << (avg_queue_length/pos) << std::endl;
-        std::cout << "queue pos traversed = " << total_pos_traversed << std::endl;
-        std::cout << "avg queue pos traversed = " << ((total_pos_traversed+0.0)/pos) << std::endl;
-
-        std::cout << "Method Wins:" << std::endl;
-        for (auto elem: method_wins)
-            std::cout << elem << std::endl;
-        */
 
         // print last BWT char and SA sample
         print_sa();
@@ -536,6 +512,22 @@ public:
         auto start = std::chrono::system_clock::now();
         auto sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
 
+        // Create a backup predecessor max lcp table, and re-initialize with max_lcp
+        size_t num_blocks_of_64 = num_docs/64;
+        num_blocks_of_64++;
+
+        // Since I am using a int array, I want to make sure I don't have overflow, I am using 
+        // a signed int8 since the 512 uint8t load/store were not working.
+        int8_t max_lcp_init = (ref_build->total_length > 127) ? 127 : ref_build->total_length;
+
+        int8_t predecessor_max_lcp_2[256][num_blocks_of_64 * 64]; 
+        for (size_t i = 0; i < 256; i++)
+            for (size_t j = 0; j < num_blocks_of_64 * 64; j++)
+                predecessor_max_lcp_2[i][j] = max_lcp_init;
+        for (size_t i = 0; i < 256; i++)
+            for (size_t j = 0; j < num_docs; j++)
+                predecessor_max_lcp[i][j] = max_lcp_init;
+
         inc(curr);
         while (curr.i < pf.dict.saD.size())
         {
@@ -602,8 +594,6 @@ public:
 
                     /* Start of the DA Profiles code */
                     
-                    //start = std::chrono::system_clock::now();
-
                     uint8_t curr_bwt_ch = curr_occ.second.second;
                     size_t lcp_i = lcp_suffix;
                     size_t sa_i = ssa;
@@ -652,27 +642,78 @@ public:
                     // Update the queue_pos lists for the current <ch, doc> pair
                     queue_pos_per_tuple[curr_bwt_ch][doc_of_LF_i].push_back(pos);
 
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[0] += sec;
-
-                    //start = std::chrono::system_clock::now();
-
                     // Update the predecessor max lcp structure with the current lcp
                     // so basiscally iterate through all values and take the min
                     // FYI: this is one of the time-consuming part of the construction
-                    for (size_t ch_num = 0; ch_num < 256; ch_num++) {
-                        for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
-                            predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], lcp_i);
+                    
+                    // for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                    //     for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
+                    //         predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], std::min(lcp_i, (size_t) 127));
+                    //     }
+                    // }
+                    // predecessor_max_lcp[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) 127, ref_build->total_length - pos_of_LF_i);
+                    
+                    /* Start of SIMD code */ 
+
+                    // Update the predecessor lcp table, this allows us to compute the maximum
+                    // lcp with respect to all the predecessor occurrences of other documents.
+                    // For example: if we are at <A, 2>, we will find the maximum lcp with the 
+                    // the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+                    #if AVX512BW_PRESENT               
+                        // initialize an lcp_i vector
+                        uint8_t lcp_i_vector[64];
+                        for (size_t i = 0; i < 64; i++)
+                            lcp_i_vector[i] = std::min((size_t) 127, lcp_i);
+
+                        // load the array of constants (lcp_i)
+                        __m512i arr1, arr2, arr3; 
+                        arr2 = _mm512_load_si512((const __m512i*) &lcp_i_vector[0]);
+
+                        std::vector<size_t> dna_chars = {65, 67, 71, 84};
+                        for (size_t ch_num: dna_chars) { // Optimization for DNA
+                        //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                            // use SIMD for all groups of 64
+                            for (size_t i = 0; i < (num_blocks_of_64 * 64); i+=64) {
+                                arr1 = _mm512_load_si512((const __m512i*) &predecessor_max_lcp_2[ch_num][i]); 
+
+                                arr3 = _mm512_min_epi8(arr1, arr2);
+                                _mm512_store_si512((__m512i*) &predecessor_max_lcp_2[ch_num][i], arr3); 
+                            }
                         }
-                    }
+                        // Reset the LCP with respect to the current <ch, doc> pair
+                        predecessor_max_lcp_2[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) 127, ref_build->total_length - pos_of_LF_i);
+                    
+                    #else                        
+                        for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                            for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
+                                predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], std::min(lcp_i, (size_t) 127));
+                            }
+                        }
+                        // Reset the LCP with respect to the current <ch, doc> pair
+                        predecessor_max_lcp[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) 127, ref_build->total_length - pos_of_LF_i);
+                    #endif
 
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[1] += sec;
+                    /* End of SIMD changes */
 
-                    //start = std::chrono::system_clock::now();
+                    // START of check !!!!
 
-                    // Reset the LCP with respect to the current <ch, doc> pair
-                    predecessor_max_lcp[curr_bwt_ch][doc_of_LF_i] = ref_build->total_length - pos_of_LF_i;
+                    // for (size_t i = 0; i < 256; i++) {
+                    //     for (size_t j = 0; j < num_docs; j++) {
+                            
+                    //         if (predecessor_max_lcp[i][j] != (size_t) predecessor_max_lcp_2[i][j]) {
+                    //             std::cout << "\nwe found a discrepancy!!!" << std::endl;
+
+                    //             std::cout << "predecessor_max_lcp[" << i << "][" << j << "]\n";
+                    //             std::cout << predecessor_max_lcp[i][j] << std:: endl;
+                    //             std::cout << unsigned(predecessor_max_lcp_2[i][j]) << std:: endl;
+                    //         }
+                    //     }
+                    // }
+                    // std::cout << "we passed the test!" << std::endl;
+
+
+                    // END of check !!!!
+
 
                     // Initialize the curr_da_profile with max lcp for predecessor 
                     // occurrences of the same BWT character from another document, and
@@ -680,7 +721,7 @@ public:
                     // with 1 (0 + 1 = 1)
                     for (size_t i = 0; i < num_docs; i++) {
                         if (i != doc_of_LF_i && ch_doc_encountered[curr_bwt_ch][i])
-                            curr_da_profile[i] = predecessor_max_lcp[curr_bwt_ch][i] + 1;
+                            curr_da_profile[i] = predecessor_max_lcp_2[curr_bwt_ch][i] + 1; //predecessor_max_lcp[curr_bwt_ch][i] + 1;
                     }
 
                     // Put together a list of queue positions to traverse. For
@@ -726,19 +767,9 @@ public:
                             return queue_pos_for_traversal;
                     };
 
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[2] += sec;
-                    
-                    //start = std::chrono::system_clock::now();
-
                     // Determine which queue positions we need to check and 
                     // compute the lcp with.
                     std::vector<size_t> queue_pos_for_traversal = merge_lists(curr_bwt_ch, doc_of_LF_i);
-
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[3] += sec;
-
-                    //start = std::chrono::system_clock::now();
 
                     // Go through all the necessary predecessor suffixes to 
                     // update the profiles
@@ -757,15 +788,11 @@ public:
 
                         lcp_queue_profiles[start_pos + doc_of_LF_i] = std::max(curr_max_lcp, min_lcp+1);
                     }
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[4] += sec;
                     avg_queue_length += lcp_queue.size();
                     total_pos_traversed += queue_pos_for_traversal.size();
 
                     if (lcp_queue.size() >= MAXQUEUELENGTH)
                         FATAL_ERROR("queue length during construction grew too large");
-
-                    //start = std::chrono::system_clock::now();
                     
                     // Add the current profile to the vector (should always be multiple of # of docs)
                     for (auto elem: curr_da_profile)
@@ -774,109 +801,47 @@ public:
                     assert(lcp_queue_profiles.size() % ref_build->num_docs == 0);
                     assert(lcp_queue_profiles.size() == (lcp_queue.size() * ref_build->num_docs));
 
-
                     // Try to trim the LCP queue and adjust the count matrix ...
                     // Method #1: non-heuristic by removing entries with multiples 
-                    // Method #3: heuristic since we remove all entries above a small lcp value (7)
+                    // Method #2: heuristic since we remove all entries above a small lcp value (7)
                     size_t curr_pos = 0;
-                    size_t records_to_remove_method1 = 0, records_to_remove_method3 = 0;
-                    bool method1_done = false, method3_done = false;
+                    size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
+                    bool method1_done = false, method2_done = false;
                     if (pos % 10 == 0) {
-                    while (curr_pos < lcp_queue.size() && (!method1_done || !method3_done)) {
-                        uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
-                        size_t curr_doc = lcp_queue[curr_pos].doc_num;
-                        assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
+                        while (curr_pos < lcp_queue.size() && (!method1_done || !method2_done)) {
+                            uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
+                            size_t curr_doc = lcp_queue[curr_pos].doc_num;
+                            assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
-                        if (!method1_done) {
-                            size_t count = 0;
-                            for (size_t i = 0; i < num_docs; i++) {
-                                if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
-                                    count++;
+                            if (!method1_done) {
+                                size_t count = 0;
+                                for (size_t i = 0; i < num_docs; i++) {
+                                    if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                        count++;
+                                }
+
+                                if (count == (num_docs-1))
+                                    records_to_remove_method1++;
+                                // TODO: generalize this to take into account characters that only occur once
+                                else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                        && curr_ch != 'G' && curr_ch != 'T'))
+                                    records_to_remove_method1++;
+                                else
+                                    method1_done = true;
                             }
-
-                            if (count == (num_docs-1))
-                                records_to_remove_method1++;
-                            // TODO: generalize this to take into account characters that only occur once
-                            else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
-                                    && curr_ch != 'G' && curr_ch != 'T'))
-                                records_to_remove_method1++;
-                            else
-                                method1_done = true;
+                            if (!method2_done) {
+                                if (lcp_queue[records_to_remove_method2++].lcp_with_prev_suffix <= 5)
+                                    method2_done = true;
+                            }
+                            curr_pos++;
                         }
-                        if (!method3_done) {
-                            if (lcp_queue[records_to_remove_method3++].lcp_with_prev_suffix <= 10)
-                                method3_done = true;
-                        }
-                        curr_pos++;
                     }
-                    }
-                    
-                    
-                    // Method #2: non-heuristic, remove all the records starting
-                    // from the the front of the queue where the smallest doc array
-                    // profile value is larger than the current smallest lcp value in 
-                    // queue, meaning that no successors rows will have the max lcp with
-                    // these records.
-                    size_t records_to_remove_method2 = 0;
-                    /*
-                    curr_pos = 0;
-                    while (curr_pos < lcp_queue.size()) {
-                        // Get the smallest LCP in the current profile we are looking at
-                        size_t start_pos = ref_build->num_docs * curr_pos;
-                        size_t curr_record_min_lcp = ref_build->total_length;
-                        for (size_t i = 0; i < num_docs; i++) 
-                            curr_record_min_lcp = std::min(lcp_queue_profiles[start_pos+i], curr_record_min_lcp);
-                        
-                        // Smallest LCP from current record until end of queue
-                        size_t curr_min = *std::min_element(lcp_vals_in_queue.begin()+curr_pos+1, lcp_vals_in_queue.end());
 
-                        // If the smallest value less than or equal to curr mininimum,
-                        // then we cannot write it out.
-                        if (curr_record_min_lcp <= curr_min && lcp_queue[curr_pos].bwt_ch != EndOfDict)
-                            break;
-                        else 
-                            records_to_remove_method2++;
-                        curr_pos++; 
-                    }
-                     */
-
-                    //sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-                    //times[5] += sec;
-
-
-                    // Method 3: Heuristic method to reduce the size of the LCP queue,
-                    // by iterating from the front of the queue and remove all the records
-                    // before a small lcp (<7) value
-                    //size_t records_to_remove_method3 = 0;
-                    /*
-                    curr_pos = 0;
-                    while (records_to_remove_method3 < lcp_queue.size()) {
-                        if (lcp_queue[records_to_remove_method3++].lcp_with_prev_suffix <= 5)
-                            break;
-                    }
-                    records_to_remove_method3 = (records_to_remove_method3 == lcp_queue.size()) ? (0) : records_to_remove_method3;
-                    */
-
-                    //std::cout << lcp_queue.size() << "   " <<  records_to_remove_method3 << std::endl;
-                    //std::cout << records_to_remove_method1 << "  " << records_to_remove_method2 << " " << records_to_remove_method3 << std::endl;
-                    
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
                     // make sure to update records that are the end of runs
-                    size_t records_to_remove = std::max(records_to_remove_method1, records_to_remove_method3);
+                    size_t records_to_remove = std::max(records_to_remove_method1, records_to_remove_method2);
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
-
-
-                    //std::cout << lcp_queue.size() << "   " << queue_pos_for_traversal.size() << "    " << records_to_remove << std::endl;
-
-                    /*
-                    if (records_to_remove_method1 > records_to_remove_method2)
-                        method_wins[0] += 1;
-                    else if (records_to_remove_method2 >  records_to_remove_method1)
-                        method_wins[1] += 1;
-                    else
-                        method_wins[2] += 1;
-                    */
                     
                     // Remove those top n elements, and update counts
                     update_lcp_queue(records_to_remove);
@@ -903,21 +868,6 @@ public:
                 inc(curr);
             }
         }
-
-        /*
-        std::cout << "\n";
-        for (auto elem: times)
-            std::cout << elem << std::endl;
-
-        std::cout << "Method Wins:" << std::endl;
-        for (auto elem: method_wins)
-            std::cout << elem << std::endl;
-
-        std::cout << "sum of queue lengths = " << avg_queue_length << "  num pos = " << pos << std::endl;
-        std::cout << "avg queue length = " << (avg_queue_length/pos) << std::endl;
-        std::cout << "queue pos traversed = " << total_pos_traversed << std::endl;
-        std::cout << "avg queue pos traversed = " << ((total_pos_traversed+0.0)/pos) << std::endl;
-        */
         
         // print last BWT char and SA sample
         print_sa();
@@ -1071,23 +1021,6 @@ public:
 
                     /* Start of the DA Profiles code */
 
-                    //std::cout << curr_occ.second.second <<  " " << lcp_suffix << " " << ssa << " " << ref_build->doc_ends_rank(ssa) <<std::endl;
-                    //std::cout << "lcp_queue size = " << lcp_queue.size() << std::endl;
-
-                    /* Debugging
-                    if (lcp_queue.size() > 1000) {
-                        std::cout << lcp_queue[0] << std::endl;
-                        std::cout << ch_doc_counters[lcp_queue[0].bwt_ch][lcp_queue[0].doc_num] << std::endl;
-
-                        std::cout <<  ch_doc_counters['A'][0] << " " << ch_doc_counters['C'][0] << " " << ch_doc_counters['G'][0] << " " << ch_doc_counters['T'][0] << " " << std::endl;
-                        std::cout <<  ch_doc_counters['A'][1] << " " << ch_doc_counters['C'][1] << " " << ch_doc_counters['G'][1] << " " << ch_doc_counters['T'][1] << " " << std::endl;
-                        
-                        if (lcp_queue[0].bwt_ch == Dollar) std::cout << "It is a dollar" << std::endl;
-                        if (lcp_queue[0].bwt_ch == EndOfWord) std::cout << "It is End of Word" << std::endl;
-                        if (lcp_queue[0].bwt_ch == EndOfDict) std::cout << "It is End of Dict" << std::endl;
-                        //std::exit(1);
-                    } */
-
                     uint8_t curr_bwt_ch = curr_occ.second.second;
                     size_t lcp_i = lcp_suffix;
                     size_t sa_i = ssa;
@@ -1210,7 +1143,7 @@ public:
                     records_to_remove_for_lcp = (records_to_remove_for_lcp == lcp_queue.size()) ? (0) : records_to_remove_for_lcp;
                     */
 
-                    // Method #2: non-heuristic, remove all the records starting
+                    // Method #3: non-heuristic, remove all the records starting
                     // from the the front of the queue where the smallest doc array
                     // profile value is larger than the current smallest lcp value in 
                     // queue, meaning that no successors rows will have the max lcp with
@@ -1236,8 +1169,6 @@ public:
                             records_to_remove_method2++;
                         curr_pos++; 
                     } */ 
-
-
 
 
                     // Take the maximum value from the two methods above, BUT
@@ -1347,7 +1278,7 @@ private:
             num_records_ejected++;
 
             /*
-            if (is_end) {
+            if (is_start) {
                 std::cout << "----------------- FINAL PROFILE: ";
                 for (size_t j = 0; j < num_docs; j++)
                     std::cout << lcp_queue_profiles[j] << " ";
@@ -1395,7 +1326,7 @@ private:
             lcp_queue.pop_front();
             
             /*
-            if (is_end) {
+            if (is_start) {
                 std::cout << "----------------- FINAL PROFILE: ";
                 for (size_t j = 0; j < num_docs; j++)
                     std::cout << lcp_queue_profiles[j] << " ";
@@ -1411,7 +1342,8 @@ private:
                 FATAL_ERROR("issue occurred while writing to *.edap file");
                 
             for (size_t j = 0; j < num_docs; j++) {
-                size_t prof_val = lcp_queue_profiles.front();
+                //size_t prof_val = lcp_queue_profiles.front();
+                int8_t prof_val = lcp_queue_profiles.front();
                 lcp_queue_profiles.pop_front();
 
                 if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)

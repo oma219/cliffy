@@ -28,9 +28,12 @@
                                   std::fprintf(stderr, "\n");} while (0)
 
 // Defintions
-#define DOCWIDTH 5
+#define DOCWIDTH 1 // 5
 #define MAXQUEUELENGTH 1000000
 #define PFPDOC_VERSION "1.0.1"
+
+#define AVX2_PRESENT __AVX2__ 
+#define AVX512BW_PRESENT __AVX512BW__ 
 
 /* Function declations */
 int pfpdoc_usage();
