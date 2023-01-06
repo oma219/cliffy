@@ -21,6 +21,7 @@
 #include <pfp.hpp>
 #include <pfp_lcp_doc.hpp>
 #include <doc_queries.hpp>
+#include <immintrin.h>
 
 int build_main(int argc, char** argv) {
     /* main method for build the document profiles */
@@ -319,7 +320,7 @@ int pfpdoc_usage() {
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
     std::fprintf(stdout, "pfp-doc version: %s\n", PFPDOC_VERSION);
-
+    
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 
             return build_main(argc-1, argv+1);
