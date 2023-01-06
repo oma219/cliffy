@@ -54,12 +54,18 @@ specified during the build process, along with FASTA file filled with reads that
 
 **Example of the output file:**
 ```sh
-[0,4] {0,1}  
-[0,2] {0,1,2}  
-[0,6] {0}  
-[0,4] {2}  
-[0,2] {0,1}  
-(1,5] {0}  (0,1] {0,1,2}  [0,0] {0,1,2}
+>pattern_0
+[0,4] {0,1} 
+>pattern_1
+[0,2] {0,2} 
+>pattern_2
+[0,6] {0} 
+>pattern_3
+[0,4] {2} 
+>pattern_4
+[0,2] {0,1} 
+>pattern_5
+[2,5] {0} [1,1] {0,1,2} [0,0] {0,1} 
 ```
 The `run` will create an output file ending in `.listings`, an example is shown above.
 Each line in the output file represents a single read in the pattern file. The indexes in the square brackets
