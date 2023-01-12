@@ -58,7 +58,7 @@ if(NOT bigbwt_POPULATED)
 ## Add gsacak
 FetchContent_Declare(
   gsacak
-  GIT_REPOSITORY https://github.com/felipelouza/gsa-is.git
+  GIT_REPOSITORY https://github.com/oma219/gsa-is.git
 )
 
 FetchContent_GetProperties(gsacak)
