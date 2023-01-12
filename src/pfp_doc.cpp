@@ -63,7 +63,7 @@ int build_main(int argc, char** argv) {
     
     pfp_lcp lcp(1, pf, build_opts.output_ref, &ref_build);
     DONE_LOG((std::chrono::system_clock::now() - start));
-    std::cout << "\n";
+    std::cerr << "\n";
     
     return 0;
 }
@@ -71,7 +71,7 @@ int build_main(int argc, char** argv) {
 int run_main(int argc, char** argv) {
     /* main method for querying the data-structure */
     if (argc == 1) return pfpdoc_run_usage();
-    std::cout << "\n";
+    std::cerr << "\n";
 
     // grab the command-line options, and validate them
     PFPDocRunOptions run_opts;
@@ -97,7 +97,7 @@ int run_main(int argc, char** argv) {
         doc_queries_obj.serialize(out, out_bwt, run_opts.read_length);
         out.close(); out_bwt.close();
     }
-    std::cout << "\n";
+    std::cerr << "\n";
     
     return 0;
 }
@@ -105,7 +105,7 @@ int run_main(int argc, char** argv) {
 int info_main(int argc, char** argv) {
     /* main method for info sub-command */
     if (argc == 1) return pfpdoc_info_usage();
-    std::cout << "\n";
+    std::cerr << "\n";
 
     // grab the command-line options, and validate them
     PFPDocInfoOptions info_opts;
@@ -117,7 +117,6 @@ int info_main(int argc, char** argv) {
     
     return 0;
 }
-
 
 void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_bins) {
     // Generates and runs the command-line for executing the PFP of the reference 
@@ -209,11 +208,11 @@ int is_dir(std::string path) {
 
 void print_build_status_info(PFPDocBuildOptions* opts) {
     /* prints out the information being used in the current run */
-    std::fprintf(stdout, "\nOverview of Parameters:\n");
-    std::fprintf(stdout, "\tInput file-list: %s\n", opts->input_list.data());
-    std::fprintf(stdout, "\tOutput ref path: %s\n", opts->output_ref.data());
-    std::fprintf(stdout, "\tPFP window size: %d\n", opts->pfp_w);
-    std::fprintf(stdout, "\tInclude rev-comp?: %d\n\n", opts->use_rcomp);
+    std::fprintf(stderr, "\nOverview of Parameters:\n");
+    std::fprintf(stderr, "\tInput file-list: %s\n", opts->input_list.data());
+    std::fprintf(stderr, "\tOutput ref path: %s\n", opts->output_ref.data());
+    std::fprintf(stderr, "\tPFP window size: %d\n", opts->pfp_w);
+    std::fprintf(stderr, "\tInclude rev-comp?: %d\n\n", opts->use_rcomp);
 }
 
 void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
@@ -262,45 +261,44 @@ void parse_info_options(int argc, char** argv, PFPDocInfoOptions* opts) {
 
 int pfpdoc_build_usage() {
     /* prints out the usage information for the build method */
-    std::fprintf(stdout, "\npfp_doc build - builds the document array profiles using PFP.\n");
-    std::fprintf(stdout, "Usage: pfp_doc build [options]\n\n");
+    std::fprintf(stderr, "\npfp_doc build - builds the document array profiles using PFP.\n");
+    std::fprintf(stderr, "Usage: pfp_doc build [options]\n\n");
 
-    std::fprintf(stdout, "Options:\n");
-    std::fprintf(stdout, "\t%-10sprints this usage message\n", "-h");
-    std::fprintf(stdout, "\t%-10spath to a file-list of genomes to use\n", "-f [arg]");
-    std::fprintf(stdout, "\t%-10soutput prefix path if using -f option\n", "-o [arg]");
-    std::fprintf(stdout, "\t%-10swindow size used for pfp (default: 10)\n", "-w [INT]");
-    std::fprintf(stdout, "\t%-10sinclude the reverse-complement of sequence (default: false)\n\n", "-r");
+    std::fprintf(stderr, "Options:\n");
+    std::fprintf(stderr, "\t%-10sprints this usage message\n", "-h");
+    std::fprintf(stderr, "\t%-10spath to a file-list of genomes to use\n", "-f [arg]");
+    std::fprintf(stderr, "\t%-10soutput prefix path if using -f option\n", "-o [arg]");
+    std::fprintf(stderr, "\t%-10swindow size used for pfp (default: 10)\n", "-w [INT]");
+    std::fprintf(stderr, "\t%-10sinclude the reverse-complement of sequence (default: false)\n\n", "-r");
 
     return 0;
 }
 
 int pfpdoc_run_usage() {
     /* prints out the usage information for the run method */
-    std::fprintf(stdout, "\npfp_doc run - processes a set of reads using the document array profiles.\n");
-    std::fprintf(stdout, "Usage: pfp_doc run [options]\n\n");
+    std::fprintf(stderr, "\npfp_doc run - processes a set of reads using the document array profiles.\n");
+    std::fprintf(stderr, "Usage: pfp_doc run [options]\n\n");
 
-    std::fprintf(stdout, "Options:\n");
-    std::fprintf(stdout, "\t%-10sprints this usage message\n", "-h");
-    std::fprintf(stdout, "\t%-10spath to the input reference file\n", "-r [arg]");
-    std::fprintf(stdout, "\t%-10spath to the pattern file\n", "-p [arg]");
-    std::fprintf(stdout, "\t%-10swrite data-structures to disk\n", "-s");
-    std::fprintf(stdout, "\t%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l [arg]");
+    std::fprintf(stderr, "Options:\n");
+    std::fprintf(stderr, "\t%-10sprints this usage message\n", "-h");
+    std::fprintf(stderr, "\t%-10spath to the input reference file\n", "-r [arg]");
+    std::fprintf(stderr, "\t%-10spath to the pattern file\n", "-p [arg]");
+    std::fprintf(stderr, "\t%-10swrite data-structures to disk\n", "-s");
+    std::fprintf(stderr, "\t%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l [arg]");
     
     return 0;
 }
 
 int pfpdoc_info_usage() {
     /* prints out the usage information for the info sub-command */
-    /* prints out the usage information for the run method */
-    std::fprintf(stdout, "\npfp_doc info - read in document array profiles and print information.\n");
-    std::fprintf(stdout, "Usage: pfp_doc info [options]\n\n");
+    std::fprintf(stderr, "\npfp_doc info - read in document array profiles and print information.\n");
+    std::fprintf(stderr, "Usage: pfp_doc info [options]\n\n");
 
-    std::fprintf(stdout, "Options:\n");
-    std::fprintf(stdout, "\t%-10sprints this usage message\n", "-h");
-    std::fprintf(stdout, "\t%-10soutput prefix used for index\n", "-r [arg]");
-    std::fprintf(stdout, "\t%-10soutput file path for printing document array profiles (csv format)\n", "-o [arg]");
-    std::fprintf(stdout, "\t%-10snumber of profiles to print if using -o\n\n", "-n [arg]");
+    std::fprintf(stderr, "Options:\n");
+    std::fprintf(stderr, "\t%-10sprints this usage message\n", "-h");
+    std::fprintf(stderr, "\t%-10soutput prefix used for index\n", "-r [arg]");
+    std::fprintf(stderr, "\t%-10soutput file path for printing document array profiles (csv format)\n", "-o [arg]");
+    std::fprintf(stderr, "\t%-10snumber of profiles to print if using -o\n\n", "-n [arg]");
     
     return 0;
 }
@@ -319,7 +317,7 @@ int pfpdoc_usage() {
 
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
-    std::fprintf(stdout, "pfp-doc version: %s\n", PFPDOC_VERSION);
+    std::fprintf(stderr, "pfp-doc version: %s\n", PFPDOC_VERSION);
     
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 
