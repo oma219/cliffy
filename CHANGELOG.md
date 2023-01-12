@@ -2,6 +2,7 @@
 
 ## v1.0.1 - latest
 - Added info subcommand for printing out a section of the document array profiles
+- Updated gsacak repo to avoid error with compilation
 
 ## v1.0.0
 - Initial version of the document array profile construction algorithm.
