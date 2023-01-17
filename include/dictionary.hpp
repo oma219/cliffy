@@ -68,19 +68,22 @@ public:
   {
     // Building dictionary from file
     std::string tmp_filename = filename + std::string(".dict");
+
     read_file(tmp_filename.c_str(), d);
     assert(d[0] == Dollar);
+
     // Prepending w dollars to d
     // 1. Count how many dollars there are
     int i = 0;
     int n_dollars = 0;
+
     while(i < d.size() && d[i++] == Dollar)
       ++n_dollars;
+
     std::vector<uint8_t> dollars(w-n_dollars,Dollar);
     d.insert(d.begin(), dollars.begin(),dollars.end());
 
     build();
-
   }
 
   inline size_t length_of_phrase(size_t id){
@@ -109,7 +112,6 @@ public:
   }
 
   void build(){
-
     // Constructing the alphabet
     std::vector<bool> visit(256,false);
     for(auto elem: d)
@@ -136,11 +138,13 @@ public:
     lcpD.resize(d.size());
     // daD.resize(d.size());
     // suffix array, LCP array, and Document array of the dictionary.
-    verbose("Computing SA, LCP, and DA of dictionary");
-    _elapsed_time(
-      gsacak(&d[0], &saD[0], &lcpD[0], nullptr, d.size())
+
+    //verbose("Computing SA, LCP, and DA of dictionary");
+    //_elapsed_time(
+      gsacak(&d[0], &saD[0], &lcpD[0], nullptr, d.size());
       // gsacak(&d[0], &saD[0], &lcpD[0], &daD[0], d.size())
-    );
+    //);
+
 
     // inverse suffix array of the dictionary.
     verbose("Computing ISA of dictionary");
@@ -152,6 +156,7 @@ public:
         }
       }
     );
+
     
 
     verbose("Computing RMQ over LCP of dictionary");
@@ -160,7 +165,6 @@ public:
       rmq_lcp_D = sdsl::rmq_succinct_sct<>(&lcpD)
     );
     
-
   }
 
   

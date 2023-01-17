@@ -54,6 +54,7 @@ int build_main(int argc, char** argv) {
     start = std::chrono::system_clock::now();
 
     run_build_parse_cmd(&build_opts, &helper_bins);
+
     pf_parsing pf(build_opts.output_ref, build_opts.pfp_w);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
@@ -141,6 +142,7 @@ void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_
     }
     if (build_opts->is_fasta) {command_stream << " -f";}
 
+    //std::cout << command_stream.str() << std::endl;
     //LOG(build_opts->verbose, "build_parse", ("Executing this command: " + command_stream.str()).data());
     auto parse_log = execute_cmd(command_stream.str().c_str());
     //OTHER_LOG(parse_log.data());
