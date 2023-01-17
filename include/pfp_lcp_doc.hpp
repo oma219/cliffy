@@ -669,7 +669,7 @@ public:
                         __m512i arr1, arr2, arr3; 
                         arr2 = _mm512_load_si512((const __m512i*) &lcp_i_vector[0]);
 
-                        std::vector<size_t> dna_chars = {65, 67, 71, 84};
+                        std::vector<size_t> dna_chars = {65, 67, 71, 84, 85}; // A, C, G, T, U
                         for (size_t ch_num: dna_chars) { // Optimization for DNA
                         //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                             // use SIMD for all groups of 64
