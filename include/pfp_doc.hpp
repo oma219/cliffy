@@ -17,7 +17,7 @@
 /* Useful MACROs */
 #define FATAL_ERROR(...) do {std::fprintf(stderr, "\nError: "); std::fprintf(stderr, __VA_ARGS__);\
                               std::fprintf(stderr, "\n\n"); std::exit(1);} while(0)
-#define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "Assertion Failed: %s\n", msg); \
+#define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\nAssertion Failed: %s\n", msg); \
                                                    std::exit(1);}} while(0)
 #define STATUS_LOG(x, ...) do {std::fprintf(stderr, "[%s] ", x); std::fprintf(stderr, __VA_ARGS__ ); \
                                std::fprintf(stderr, " ... ");} while(0)
@@ -28,12 +28,15 @@
                                   std::fprintf(stderr, "\n");} while (0)
 
 // Defintions
-#define DOCWIDTH 1 // 5
+#define PFPDOC_VERSION "1.0.2"
+
+#define DOCWIDTH 2 // 5
 #define MAXQUEUELENGTH 1000000
-#define PFPDOC_VERSION "1.0.1"
+#define MAXLCPVALUE 65535 // 2^16 - 1
 
 #define AVX2_PRESENT __AVX2__ 
 #define AVX512BW_PRESENT __AVX512BW__ 
+
 
 /* Function declations */
 int pfpdoc_usage();

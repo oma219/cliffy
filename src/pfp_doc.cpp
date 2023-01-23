@@ -61,7 +61,7 @@ int build_main(int argc, char** argv) {
     // Builds the BWT, SA, LCP, and document array profiles and writes to a file
     STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
     start = std::chrono::system_clock::now();
-    
+
     pfp_lcp lcp(1, pf, build_opts.output_ref, &ref_build);
     DONE_LOG((std::chrono::system_clock::now() - start));
     std::cerr << "\n";

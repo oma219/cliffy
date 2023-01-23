@@ -513,16 +513,16 @@ public:
         auto sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
 
         // Create a backup predecessor max lcp table, and re-initialize with max_lcp
-        size_t num_blocks_of_64 = num_docs/64;
-        num_blocks_of_64++;
+        size_t num_blocks_of_32 = num_docs/32;
+        num_blocks_of_32++;
 
         // Since I am using a int array, I want to make sure I don't have overflow, I am using 
         // a signed int8 since the 512 uint8t load/store were not working.
-        int8_t max_lcp_init = (ref_build->total_length > 127) ? 127 : ref_build->total_length;
+        uint16_t max_lcp_init = (ref_build->total_length > MAXLCPVALUE) ? MAXLCPVALUE : ref_build->total_length;
 
-        int8_t predecessor_max_lcp_2[256][num_blocks_of_64 * 64]; 
+        uint16_t predecessor_max_lcp_2[256][num_blocks_of_32 * 32]; 
         for (size_t i = 0; i < 256; i++)
-            for (size_t j = 0; j < num_blocks_of_64 * 64; j++)
+            for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
                 predecessor_max_lcp_2[i][j] = max_lcp_init;
         for (size_t i = 0; i < 256; i++)
             for (size_t j = 0; j < num_docs; j++)
@@ -659,38 +659,49 @@ public:
                     // lcp with respect to all the predecessor occurrences of other documents.
                     // For example: if we are at <A, 2>, we will find the maximum lcp with the 
                     // the previous occurrences of <A, 0> and <A, 1> for 3 documents.
-                    #if AVX512BW_PRESENT               
+                    #if AVX512BW_PRESENT       
+                        /*
+                         * NOTE: I decided to use the mask store/load because the non-mask
+                         * version of the same function was not present. I looked online and 
+                         * found this thread, that describes how you can replicate their function
+                         * by using masks which is what I did: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95483
+                         * This link was helpful in understanding conditional
+                         * load masks: https://www.cs.virginia.edu/~cr4bd/3330/F2018/simdref.html
+                         */
+
                         // initialize an lcp_i vector
-                        uint8_t lcp_i_vector[64];
-                        for (size_t i = 0; i < 64; i++)
-                            lcp_i_vector[i] = std::min((size_t) 127, lcp_i);
+                        uint16_t lcp_i_vector[32];
+                        for (size_t i = 0; i < 32; i++)
+                            lcp_i_vector[i] = std::min((size_t) MAXLCPVALUE, lcp_i);
 
                         // load the array of constants (lcp_i)
                         __m512i arr1, arr2, arr3; 
-                        arr2 = _mm512_load_si512((const __m512i*) &lcp_i_vector[0]);
+                        __mmask32 k = ~0; // all 32 bits on, means all 32 values will be written
+                        arr2 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &lcp_i_vector[0]);
 
                         std::vector<size_t> dna_chars = {65, 67, 71, 84, 85}; // A, C, G, T, U
                         for (size_t ch_num: dna_chars) { // Optimization for DNA
                         //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
-                            // use SIMD for all groups of 64
-                            for (size_t i = 0; i < (num_blocks_of_64 * 64); i+=64) {
-                                arr1 = _mm512_load_si512((const __m512i*) &predecessor_max_lcp_2[ch_num][i]); 
+                            // use SIMD for all groups of 32
+                            for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
+                                // zero-mask, all the set bit positions are loaded
+                                arr1 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &predecessor_max_lcp_2[ch_num][i]); 
 
-                                arr3 = _mm512_min_epi8(arr1, arr2);
-                                _mm512_store_si512((__m512i*) &predecessor_max_lcp_2[ch_num][i], arr3); 
+                                arr3 = _mm512_min_epu16(arr1, arr2);
+                                _mm512_mask_storeu_epi16((__m512i*) &predecessor_max_lcp_2[ch_num][i], k, arr3); 
                             }
                         }
                         // Reset the LCP with respect to the current <ch, doc> pair
-                        predecessor_max_lcp_2[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) 127, ref_build->total_length - pos_of_LF_i);
+                        predecessor_max_lcp_2[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, ref_build->total_length - pos_of_LF_i);
                     
                     #else                        
                         for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                             for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
-                                predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], std::min(lcp_i, (size_t) 127));
+                                predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], std::min(lcp_i, (size_t) MAXLCPVALUE));
                             }
                         }
                         // Reset the LCP with respect to the current <ch, doc> pair
-                        predecessor_max_lcp[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) 127, ref_build->total_length - pos_of_LF_i);
+                        predecessor_max_lcp[curr_bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, ref_build->total_length - pos_of_LF_i);
                     #endif
 
                     /* End of SIMD changes */
@@ -806,7 +817,7 @@ public:
                     // Method #2: heuristic since we remove all entries above a small lcp value (7)
                     size_t curr_pos = 0;
                     size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
-                    bool method1_done = false, method2_done = false;
+                    bool method1_done = false, method2_done = true;
                     if (pos % 10 == 0) {
                         while (curr_pos < lcp_queue.size() && (!method1_done || !method2_done)) {
                             uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
@@ -824,7 +835,7 @@ public:
                                     records_to_remove_method1++;
                                 // TODO: generalize this to take into account characters that only occur once
                                 else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
-                                        && curr_ch != 'G' && curr_ch != 'T'))
+                                        && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U'))
                                     records_to_remove_method1++;
                                 else
                                     method1_done = true;
@@ -1294,7 +1305,7 @@ private:
                 FATAL_ERROR("issue occurred while writing to *.edap file");
 
             for (size_t j = 0; j < num_docs; j++) {
-                size_t prof_val = lcp_queue_profiles.front();
+                size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
                 lcp_queue_profiles.pop_front();
 
                 if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
@@ -1343,7 +1354,7 @@ private:
                 
             for (size_t j = 0; j < num_docs; j++) {
                 //size_t prof_val = lcp_queue_profiles.front();
-                int8_t prof_val = lcp_queue_profiles.front();
+                size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
                 lcp_queue_profiles.pop_front();
 
                 if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)

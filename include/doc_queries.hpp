@@ -28,21 +28,21 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
     // This vectors has the following dimensions: [256][num of ith char][num_docs]
     // This structure stores the DA profiles for each
     // character separately.
-    std::vector<std::vector<std::vector<size_t>>> start_doc_profiles;
-    std::vector<std::vector<std::vector<size_t>>> end_doc_profiles;
+    std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles;
+    std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles;
 
     // These vectors are just for conveinence of testing
     // and visualizing. They are the document array 
     // profiles but sequentially from top to bottom of BWT
-    std::vector<std::vector<size_t>> start_doc_profiles_seq;
-    std::vector<std::vector<size_t>> end_doc_profiles_seq;
+    std::vector<std::vector<uint16_t>> start_doc_profiles_seq;
+    std::vector<std::vector<uint16_t>> end_doc_profiles_seq;
 
     typedef size_t size_type;
 
     doc_queries(std::string filename, std::string output_path="", size_t num_profiles=0, bool rle = true): 
             ri::r_index<sparse_bv_type, rle_string_t>(),
-            start_doc_profiles(256, std::vector<std::vector<size_t>>(0, std::vector<size_t>(0))),
-            end_doc_profiles(256, std::vector<std::vector<size_t>>(0, std::vector<size_t>(0)))
+            start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
+            end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
     {
         std::string bwt_fname = filename + ".bwt";
 
@@ -108,15 +108,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         STATUS_LOG("build_profiles", "loading the document array profiles");
         start = std::chrono::system_clock::now();
 
-        start_doc_profiles_seq.resize(this->r, std::vector<size_t>(num_docs, 0));
-        end_doc_profiles_seq.resize(this->r, std::vector<size_t>(num_docs, 0));
-
-        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, start_doc_profiles_seq);
-        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, end_doc_profiles_seq);
+        // If we are trying to print out profiles, then we will actually use these vectors
+        if (output_path.size()) {
+            start_doc_profiles_seq.resize(this->r, std::vector<uint16_t>(num_docs, 0));
+            end_doc_profiles_seq.resize(this->r, std::vector<uint16_t>(num_docs, 0));
+        }
+        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, start_doc_profiles_seq, output_path.size());
+        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, end_doc_profiles_seq, output_path.size());
 
         DONE_LOG((std::chrono::system_clock::now() - start));
-
-        //end_doc_profiles_two.resize(this->r, std::vector<size_t>(num_docs, 0));
 
         // If the user wants to print out document array profiles ...
         if (output_path.size()) {
@@ -140,7 +140,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         }
     }
 
-    static void read_doc_profiles(std::vector<std::vector<std::vector<size_t>>>& prof_matrix, std::string input_file, size_t num_docs, size_t num_runs, std::vector<std::vector<size_t>>& doc_profiles_seq) {
+    static void read_doc_profiles(std::vector<std::vector<std::vector<uint16_t>>>& prof_matrix, std::string input_file, size_t num_docs, 
+                                  size_t num_runs, std::vector<std::vector<uint16_t>>& doc_profiles_seq, bool load_sequentially) {
         /* loads a set of document array profiles into their respective matrix */
 
         // First, lets open the file and verify the size/# of docs are valid
@@ -169,12 +170,13 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             if (fread(&curr_bwt_ch, 1, 1, fd) != 1)
                 FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
 
-            std::vector<size_t> curr_profile (num_docs, 0);
+            std::vector<uint16_t> curr_profile (num_docs, 0);
             for (size_t j = 0; j < num_docs; j++) {
                 if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                     error("fread() file " + input_file + " failed"); 
                 curr_profile[j] = curr_val;
-                doc_profiles_seq[i][j] = curr_val;
+                if (load_sequentially)
+                    doc_profiles_seq[i][j] = curr_val;
             }
             prof_matrix[curr_bwt_ch].push_back(curr_profile);
         }
@@ -194,12 +196,12 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         seq = kseq_init(fp);
 
         // lambda to print out the document listing
-        auto process_profile = [&](std::vector<size_t> profile, size_t length) {
-                std::vector<size_t> docs_found;
+        auto process_profile = [&](std::vector<uint16_t> profile, uint16_t length) {
                 std::string output_str = "{";
                 bool found_one = false;
 
                 for (size_t i = 0; i < profile.size(); i++) {
+                    //std::cout << "length = " << length << "  profile_val = " << profile[i] << std::endl;
                     if (profile[i] >= length) {
                         output_str += "," + std::to_string(i);
                         found_one = true;
@@ -207,8 +209,17 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
                 if (found_one)
                     output_str = "{" + output_str.substr(2) + "} ";
-                else    
+                else {   
                     output_str = "{} ";
+                    //std::cout << "length = " << length << std::endl;
+                    // for (size_t i = 0; i < profile.size();i++)
+                    //     std::cout << profile[i] << "  ";
+                    // std::cout << "\n";
+                    //std::exit(1);
+                }
+                // for (size_t i = 0; i < profile.size();i++)
+                //     std::cout << profile[i] << "  ";
+                // std::cout << "\n";
                 listings_fd << output_str;
         };
 
@@ -221,7 +232,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
 
             size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
-            std::vector<size_t> curr_profile (this->num_docs, 0);
+            std::vector<uint16_t> curr_profile (this->num_docs, 0);
+            uint16_t length = 0;
 
             listings_fd << ">" << seq->name.s << "\n";
 
@@ -232,10 +244,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             // Tell us what type of profile to grab based on pointer variables
             bool use_start = false, use_end = false;
 
+            //std::cout << "\n";
+
             // Perform backward search and report document listings when
             // range goes empty or we reach the end
             for (int i = (seq->seq.l-1); i >= 0; i--) {
                 uint8_t next_ch = seq->seq.s[i];
+
+                //std::cout << "start = " << start << "   end = " << end << std::endl;
 
                 size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
                 size_t num_ch_before_end = this->bwt.rank(end, next_ch);
@@ -253,10 +269,13 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                             curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
                         else
                             curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
-                        std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
+                        std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x+=num_LF_steps;});
 
                         listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
-                        process_profile(curr_profile, (end_pos_of_match-i));
+                        //std::cout << "[" << (i+1) << "," << end_pos_of_match << "] " << std::endl;
+
+                        length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                        process_profile(curr_profile, length);
                         end_pos_of_match = i;
 
                         start = 0; end = this->bwt.size();
@@ -270,6 +289,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
                     num_LF_steps = 0;
                     use_start = false; use_end = false;
+
+                    //std::cout << "case 1: next_ch = " << next_ch <<  std::endl;
 
                     // If the start position run is the same as query
                     // ch, then we can guarantee that end of run is in the range
@@ -287,10 +308,13 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
                     else
                         curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
-                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
+                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x+=num_LF_steps;});
 
                     listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
-                    process_profile(curr_profile, (end_pos_of_match-i));
+                    //std::cout << "[" << (i+1) << "," << end_pos_of_match << "] " << std::endl;
+
+                    length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                    process_profile(curr_profile, length);
                     end_pos_of_match = i;
 
                     start = 0; end = this->bwt.size();
@@ -304,6 +328,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     num_LF_steps = 0;
                     use_start = false; use_end = false;
 
+                    //std::cout << "case 2" << std::endl;
+
                     // If the start position run is the same as query
                     // ch, then we can guarantee that end of run is in the range
                     // otherwise, we can guarantee the start of run is in range.
@@ -316,6 +342,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 else 
                 {
                     num_LF_steps++;
+                    //std::cout << "case 3" << std::endl;
                     //std::transform(curr_profile.begin(), curr_profile.end(), curr_profile.begin(), 
                     //                [](size_t x) { return (++x); });   
                 }
@@ -329,10 +356,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
             else
                 curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
-            std::for_each(curr_profile.begin(), curr_profile.end(), [&](size_t &x){x+=num_LF_steps;});
+            std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x+=num_LF_steps;});
 
             listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
-            process_profile(curr_profile, end_pos_of_match+1);
+            //std::cout << "[" << 0 << "," << end_pos_of_match << "] " << std::endl;
+
+            //std::cout << num_LF_steps << std::endl;
+            length = std::min((size_t) MAXLCPVALUE, end_pos_of_match+1);
+            process_profile(curr_profile, length);
             listings_fd << "\n";
         }
     }
@@ -402,10 +433,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         size_t curr_run_num  = 0;
         std::vector<size_t> ch_pos (256, 0);
         
-        std::vector<size_t> curr_start_profile(num_docs, 0);
-        std::vector<size_t> curr_end_profile(num_docs, 0);
+        std::vector<uint16_t> curr_start_profile(num_docs, 0);
+        std::vector<uint16_t> curr_end_profile(num_docs, 0);
 
-        size_t max_poss_lcp = (read_length == 0) ? (std::pow(2, DOCWIDTH*8)-1) : read_length;
+        uint16_t max_poss_lcp = (read_length == 0) ? (std::pow(2, DOCWIDTH*8)-1) : read_length;
 
         for (size_t i = 0; i < n; i++){
             // Determine if we have started a new run
