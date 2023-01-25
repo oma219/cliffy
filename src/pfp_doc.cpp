@@ -115,6 +115,7 @@ int info_main(int argc, char** argv) {
 
     // build the doc_queries object (load data-structures)
     doc_queries doc_queries_obj (info_opts.ref_file, info_opts.output_path, info_opts.num_profiles);
+    std::cerr << "\n";
     
     return 0;
 }

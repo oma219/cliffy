@@ -34,8 +34,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
     // These vectors are just for conveinence of testing
     // and visualizing. They are the document array 
     // profiles but sequentially from top to bottom of BWT
-    std::vector<std::vector<uint16_t>> start_doc_profiles_seq;
-    std::vector<std::vector<uint16_t>> end_doc_profiles_seq;
+    //std::vector<std::vector<uint16_t>> start_doc_profiles_seq;
+    //std::vector<std::vector<uint16_t>> end_doc_profiles_seq;
 
     typedef size_t size_type;
 
@@ -84,7 +84,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         FORCE_LOG("build_profiles", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
         
-        // determine the number of documents and verify the that file
+        // Determine the number of documents and verify the that file
         // sizes are correct.
         std::string tmp_filename = filename + ".sdap";
 
@@ -103,22 +103,27 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         
         ASSERT((filestat.st_size == ((num_docs * this->r * DOCWIDTH) + sizeof(size_t) + this->r)), "invalid file size.");
         fclose(fd);
+
+        FORCE_LOG("read_profiles", "number of documents: d = %ld" , num_docs);
         
-        // load the profiles for starts and ends
+        // Load the profiles for starts and ends
         STATUS_LOG("build_profiles", "loading the document array profiles");
         start = std::chrono::system_clock::now();
 
         // If we are trying to print out profiles, then we will actually use these vectors
+        /*
         if (output_path.size()) {
             start_doc_profiles_seq.resize(this->r, std::vector<uint16_t>(num_docs, 0));
             end_doc_profiles_seq.resize(this->r, std::vector<uint16_t>(num_docs, 0));
-        }
-        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, start_doc_profiles_seq, output_path.size());
-        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, end_doc_profiles_seq, output_path.size());
+        }*/
+        
+        read_doc_profiles(start_doc_profiles, filename + ".sdap", this->num_docs, this->r, output_path + ".sdap.csv", num_profiles);
+        read_doc_profiles(end_doc_profiles, filename + ".edap", this->num_docs, this->r, output_path + ".edap.csv", num_profiles);
 
         DONE_LOG((std::chrono::system_clock::now() - start));
 
         // If the user wants to print out document array profiles ...
+        /*
         if (output_path.size()) {
             FORCE_LOG("build_profiles", "number of documents: d = %ld" , this->num_docs);
             size_t profiles_to_print = (num_profiles == 0 || num_profiles > this->r) ? this->r : num_profiles; 
@@ -138,10 +143,11 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
             FORCE_LOG("build_profiles", "finished writing out the document array profiles.\n");
         }
+        */
     }
 
     static void read_doc_profiles(std::vector<std::vector<std::vector<uint16_t>>>& prof_matrix, std::string input_file, size_t num_docs, 
-                                  size_t num_runs, std::vector<std::vector<uint16_t>>& doc_profiles_seq, bool load_sequentially) {
+                                  size_t num_runs, std::string output_path, size_t num_profiles) {
         /* loads a set of document array profiles into their respective matrix */
 
         // First, lets open the file and verify the size/# of docs are valid
@@ -160,7 +166,18 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         ASSERT((num_docs_found == num_docs), "mismatch in the number of documents.");
         ASSERT((filestat.st_size == ((num_docs * num_runs * DOCWIDTH) + sizeof(size_t) + num_runs)), "invalid file size.");
 
-        // Secondly, go through the rest of file and fill in the profiles. Each 
+        // Next, lets open files if we want to write out some number of the 
+        // profiles
+        std::ofstream dap_csv_file;
+        bool print_to_file = (output_path.size() > 9); // Not just .sdap.csv
+        size_t profiles_to_print = 0;
+
+        if (print_to_file){ 
+            dap_csv_file.open(output_path);
+            profiles_to_print = (num_profiles == 0 || num_profiles > num_runs) ? num_runs : num_profiles; 
+        }
+
+        // Thirdly, go through the rest of file and fill in the profiles. Each 
         // profile will start with the BWT character which we will use figure out which
         // list to put it in.
         size_t curr_val = 0;
@@ -175,8 +192,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                     error("fread() file " + input_file + " failed"); 
                 curr_profile[j] = curr_val;
-                if (load_sequentially)
-                    doc_profiles_seq[i][j] = curr_val;
+                
+                // Check if we want to print
+                if (print_to_file) {
+                    if (j < (num_docs-1))
+                        dap_csv_file << curr_val << ",";
+                    else
+                        dap_csv_file << curr_val << "\n";
+                }
             }
             prof_matrix[curr_bwt_ch].push_back(curr_profile);
         }

@@ -28,7 +28,7 @@
                                   std::fprintf(stderr, "\n");} while (0)
 
 // Defintions
-#define PFPDOC_VERSION "1.0.2"
+#define PFPDOC_VERSION "1.0.3"
 
 #define DOCWIDTH 2 // 5
 #define MAXQUEUELENGTH 1000000
