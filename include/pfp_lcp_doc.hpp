@@ -817,7 +817,7 @@ public:
                     // Method #2: heuristic since we remove all entries above a small lcp value (7)
                     size_t curr_pos = 0;
                     size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
-                    bool method1_done = false, method2_done = true;
+                    bool method1_done = false, method2_done = false;
                     if (pos % 10 == 0) {
                         while (curr_pos < lcp_queue.size() && (!method1_done || !method2_done)) {
                             uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
