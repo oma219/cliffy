@@ -1,6 +1,10 @@
 # PFP-Doc Change Log
 
-## v1.0.2 - latest
+## v1.0.3 - latest
+- Updated the doc_queries constructor to avoid creating a separate table of sequential entries
+  to limit the RAM usage, especially when working with large datasets.
+
+## v1.0.2
 - Updated the construction code to write out lcp values in 16-bit registers opposed to using 8 bit registers. This
   now allows values to be up to 2^16-1, so any values larger than that are rounded down to 2^16-1. 
 - Updated the query subcommand to load the profiles using the 16-bit registers.
