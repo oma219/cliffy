@@ -83,6 +83,10 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         size_t log_n = bitsize(uint64_t(this->bwt.size()));
 
         FORCE_LOG("build_profiles", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
+
+
+        // for (size_t i = 0; i < n; i++)
+        //     std::cout << "i = " << i << "   bwt[i] = " << this->bwt[i] << std::endl;
         
         // Determine the number of documents and verify the that file
         // sizes are correct.
@@ -230,19 +234,12 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         found_one = true;
                     }
                 }
+
                 if (found_one)
                     output_str = "{" + output_str.substr(2) + "} ";
                 else {   
                     output_str = "{} ";
-                    //std::cout << "length = " << length << std::endl;
-                    // for (size_t i = 0; i < profile.size();i++)
-                    //     std::cout << profile[i] << "  ";
-                    // std::cout << "\n";
-                    //std::exit(1);
-                }
-                // for (size_t i = 0; i < profile.size();i++)
-                //     std::cout << profile[i] << "  ";
-                // std::cout << "\n";
+                }                
                 listings_fd << output_str;
         };
 
@@ -250,7 +247,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         while (kseq_read(seq)>=0) {
             
             // Uppercase every character in read
-			for (size_t i = 0; i < seq->seq.l; ++i) {
+			for (size_t i = 0; i < seq->seq.l; ++i) 
+            {
 				seq->seq.s[i] = static_cast<char>(std::toupper(seq->seq.s[i]));
             }
 
@@ -266,8 +264,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             // Tell us what type of profile to grab based on pointer variables
             bool use_start = false, use_end = false;
-
-            //std::cout << "\n";
 
             // Perform backward search and report document listings when
             // range goes empty or we reach the end
@@ -292,10 +288,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                             curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
                         else
                             curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
-                        std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x+=num_LF_steps;});
+                        std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
 
                         listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
-                        //std::cout << "[" << (i+1) << "," << end_pos_of_match << "] " << std::endl;
 
                         length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
                         process_profile(curr_profile, length);
@@ -313,6 +308,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     num_LF_steps = 0;
                     use_start = false; use_end = false;
 
+                    // DEBUG
                     //std::cout << "case 1: next_ch = " << next_ch <<  std::endl;
 
                     // If the start position run is the same as query
@@ -322,6 +318,20 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         use_end = true;
                     else
                         use_start = true;
+                    
+
+                    // DEBUG:
+                    // if (use_end) {
+                    //     for (auto x: end_doc_profiles[curr_prof_ch][curr_prof_pos])
+                    //         std::cout << x << " ";
+                    //     std::cout << "\n";
+                    // }
+                    // else {
+                    //     for (auto x: start_doc_profiles[curr_prof_ch][curr_prof_pos])
+                    //         std::cout << x << " ";
+                    //     std::cout << "\n";
+                    // }
+
                 } 
                 // range is within BWT run, but wrong character 
                 else if (this->bwt[start] != next_ch) 
@@ -331,10 +341,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
                     else
                         curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
-                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x+=num_LF_steps;});
+                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
 
                     listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
-                    //std::cout << "[" << (i+1) << "," << end_pos_of_match << "] " << std::endl;
 
                     length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
                     process_profile(curr_profile, length);
@@ -365,9 +374,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 else 
                 {
                     num_LF_steps++;
-                    //std::cout << "case 3" << std::endl;
-                    //std::transform(curr_profile.begin(), curr_profile.end(), curr_profile.begin(), 
-                    //                [](size_t x) { return (++x); });   
+                    //std::cout << "case 3" << std::endl; 
                 }
 
                 // Perform an LF step
@@ -379,12 +386,35 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
             else
                 curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
-            std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x+=num_LF_steps;});
+
+            // DEBUG:
+            // if (use_end) {
+            //     for (auto x: curr_profile)
+            //         std::cout << x << " ";
+            //     std::cout << "\n";
+            // }
+            // else {
+            //     for (auto x: curr_profile)
+            //         std::cout << x << " ";
+            //     std::cout << "\n";
+            // }
+
+            // Update profile based on LF steps
+            std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
+
+            // DEBUG:
+            // if (use_end) {
+            //     for (auto x: curr_profile)
+            //         std::cout << x << " ";
+            //     std::cout << "\n";
+            // }
+            // else {
+            //     for (auto x: curr_profile)
+            //         std::cout << x << " ";
+            //     std::cout << "\n";
+            // }
 
             listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
-            //std::cout << "[" << 0 << "," << end_pos_of_match << "] " << std::endl;
-
-            //std::cout << num_LF_steps << std::endl;
             length = std::min((size_t) MAXLCPVALUE, end_pos_of_match+1);
             process_profile(curr_profile, length);
             listings_fd << "\n";

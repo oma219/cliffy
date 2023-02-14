@@ -1,6 +1,12 @@
 # PFP-Doc Change Log
 
-## v1.0.3 - latest
+## v1.0.4 - latest
+- Turned off second method for lcp queue trimming to avoid errors
+- Fixed the non-heuristic method for lcp queue trimming by updating the ch_doc_counter table 
+  during the loop
+- Updated the code that updates profile with LF steps to avoid overflow
+
+## v1.0.3
 - Updated the doc_queries constructor to avoid creating a separate table of sequential entries
   to limit the RAM usage, especially when working with large datasets.
 

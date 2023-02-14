@@ -504,13 +504,16 @@ public:
         std::vector<size_t> curr_da_profile (ref_build->num_docs, 0);
         std::vector<bool> docs_to_collect (ref_build->num_docs, false);
 
-        // DEBUGGING
+        // DEBUG: variables defined for debugging
         std::vector<double> times = {0, 0, 0, 0, 0, 0};
         std::vector<size_t> method_wins = {0, 0, 0};
         double avg_queue_length = 0.0;
         size_t total_pos_traversed = 0;
         auto start = std::chrono::system_clock::now();
         auto sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
+
+        // DEBUG: output file for storing variables
+        //std::ofstream debugging_fd (filename + ".output_data.txt");
 
         // Create a backup predecessor max lcp table, and re-initialize with max_lcp
         size_t num_blocks_of_32 = num_docs/32;
@@ -591,9 +594,7 @@ public:
                     ssa = (pf.pos_T[*curr_occ.first] - curr.suffix_length) % (pf.n - pf.w + 1ULL);
                     esa = (pf.pos_T[*curr_occ.first] - curr.suffix_length) % (pf.n - pf.w + 1ULL);
 
-
                     /* Start of the DA Profiles code */
-                    
                     uint8_t curr_bwt_ch = curr_occ.second.second;
                     size_t lcp_i = lcp_suffix;
                     size_t sa_i = ssa;
@@ -611,6 +612,9 @@ public:
                     if (is_start) {curr_run_num++;}
                     size_t pos_of_LF_i = (sa_i > 0) ? (sa_i - 1) : (ref_build->total_length-1);
                     size_t doc_of_LF_i = ref_build->doc_ends_rank(pos_of_LF_i);
+
+                    // DEBUG: creates the debugging file
+                    // debugging_fd << pos << std::setw(20) << (curr_run_num-1) << std::setw(20) << curr_bwt_ch << std::setw(20) << sa_i << std::setw(20) << doc_of_LF_i << std::setw(20) << lcp_i << std::endl;
 
                     // Add the current suffix data to LCP queue 
                     queue_entry_t curr_entry = {curr_run_num-1, curr_bwt_ch, doc_of_LF_i, is_start, is_end, lcp_i};
@@ -644,7 +648,7 @@ public:
 
                     // Update the predecessor max lcp structure with the current lcp
                     // so basiscally iterate through all values and take the min
-                    // FYI: this is one of the time-consuming part of the construction
+                    // IMPORTANT: this is the old code before SIMDifying.
                     
                     // for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                     //     for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
@@ -706,7 +710,7 @@ public:
 
                     /* End of SIMD changes */
 
-                    // START of check !!!!
+                    // CHECK CODE: makes sure the predecessor table is correct
 
                     // for (size_t i = 0; i < 256; i++) {
                     //     for (size_t j = 0; j < num_docs; j++) {
@@ -722,8 +726,7 @@ public:
                     // }
                     // std::cout << "we passed the test!" << std::endl;
 
-
-                    // END of check !!!!
+                    // END OF CHECK
 
 
                     // Initialize the curr_da_profile with max lcp for predecessor 
@@ -817,36 +820,51 @@ public:
                     // Method #2: heuristic since we remove all entries above a small lcp value (7)
                     size_t curr_pos = 0;
                     size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
-                    bool method1_done = false, method2_done = false;
-                    if (pos % 10 == 0) {
+                    bool method1_done = false, method2_done = true; // Turned off Method #2 for now 
+                    //if (pos % 10 == 0) {
                         while (curr_pos < lcp_queue.size() && (!method1_done || !method2_done)) {
                             uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
                             size_t curr_doc = lcp_queue[curr_pos].doc_num;
                             assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
+                            size_t current_run_num = lcp_queue[curr_pos].run_num;
+
                             if (!method1_done) {
+
                                 size_t count = 0;
                                 for (size_t i = 0; i < num_docs; i++) {
                                     if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
                                         count++;
                                 }
-
-                                if (count == (num_docs-1))
+                                /*
+                                 * IMPORTANT: I added the decrement statements below since we need
+                                 * an updated ch_doc_counters in order to make correct decisions. The
+                                 * problem was that sometimes it would remove too many entries
+                                 */
+                                if (count == (num_docs-1)) {
                                     records_to_remove_method1++;
+                                    ch_doc_counters[curr_ch][curr_doc] -= 1;
                                 // TODO: generalize this to take into account characters that only occur once
-                                else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
-                                        && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U'))
+                                } else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                        && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U')) {
                                     records_to_remove_method1++;
-                                else
+                                    ch_doc_counters[curr_ch][curr_doc] -= 1;
+                                } else
                                     method1_done = true;
                             }
                             if (!method2_done) {
-                                if (lcp_queue[records_to_remove_method2++].lcp_with_prev_suffix <= 5)
+                                if (lcp_queue[records_to_remove_method2++].lcp_with_prev_suffix <= 8)
                                     method2_done = true;
                             }
                             curr_pos++;
                         }
-                    }
+                   // }
+                    
+                    // Added this check to avoid removing all entries when there are no small
+                    // values in the queue. TODO: fix this so the loop above understands this
+                    // case
+                    if (records_to_remove_method2 == lcp_queue.size())
+                        records_to_remove_method2 = 0;
 
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
@@ -1326,7 +1344,7 @@ private:
             bool is_end = lcp_queue[0].is_end;
 
             // Update <ch, doc> count matrix
-            ch_doc_counters[curr_ch][curr_doc] -= 1;
+            //ch_doc_counters[curr_ch][curr_doc] -= 1;
 
             // Update the queue position lists
             num_records_ejected++;
