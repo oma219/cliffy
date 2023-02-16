@@ -1,5 +1,9 @@
 # PFP-Doc Change Log
 
+## v1.0.5 - latest
+- Used the second method for lcp queue trimming which is a heuristic, anytime we encounter an lcp value <= 5, we flush the queue
+- Made a change to update_lcp_queue to incorporate knowledge of which method was used for trimming
+
 ## v1.0.4 - latest
 - Turned off second method for lcp queue trimming to avoid errors
 - Fixed the non-heuristic method for lcp queue trimming by updating the ch_doc_counter table 

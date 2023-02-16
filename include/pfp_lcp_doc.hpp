@@ -392,7 +392,7 @@ public:
                     size_t records_to_remove = std::min(records_to_remove_method1, lcp_queue.size()-1);
 
                     // Remove those top n elements, and update counts
-                    update_lcp_queue(records_to_remove);
+                    update_lcp_queue(records_to_remove, true);
                     
                     /* End of the DA Profiles code (except for some update statements below) */
 
@@ -820,51 +820,50 @@ public:
                     // Method #2: heuristic since we remove all entries above a small lcp value (7)
                     size_t curr_pos = 0;
                     size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
-                    bool method1_done = false, method2_done = true; // Turned off Method #2 for now 
-                    //if (pos % 10 == 0) {
-                        while (curr_pos < lcp_queue.size() && (!method1_done || !method2_done)) {
+                    bool method1_used = false, method1_done = false, method2_used = false; // Turned off Method #2 for now 
+
+                    if (lcp_i <= 5) {
+                        method2_used = true;
+                        records_to_remove_method2 = lcp_queue.size()-1;
+                    } else {
+                        method1_used = true;
+                        while (curr_pos < lcp_queue.size() && !method1_done) {
                             uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
                             size_t curr_doc = lcp_queue[curr_pos].doc_num;
                             assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
 
                             size_t current_run_num = lcp_queue[curr_pos].run_num;
+                            size_t count = 0;
 
-                            if (!method1_done) {
-
-                                size_t count = 0;
-                                for (size_t i = 0; i < num_docs; i++) {
-                                    if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
-                                        count++;
-                                }
-                                /*
-                                 * IMPORTANT: I added the decrement statements below since we need
-                                 * an updated ch_doc_counters in order to make correct decisions. The
-                                 * problem was that sometimes it would remove too many entries
-                                 */
-                                if (count == (num_docs-1)) {
-                                    records_to_remove_method1++;
-                                    ch_doc_counters[curr_ch][curr_doc] -= 1;
-                                // TODO: generalize this to take into account characters that only occur once
-                                } else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
-                                        && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U')) {
-                                    records_to_remove_method1++;
-                                    ch_doc_counters[curr_ch][curr_doc] -= 1;
-                                } else
-                                    method1_done = true;
+                            for (size_t i = 0; i < num_docs; i++) {
+                                if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                    count++;
                             }
-                            if (!method2_done) {
-                                if (lcp_queue[records_to_remove_method2++].lcp_with_prev_suffix <= 8)
-                                    method2_done = true;
+                           /*
+                            * IMPORTANT: I added the decrement statements below since we need
+                            * an updated ch_doc_counters in order to make correct decisions. The
+                            * problem was that sometimes it would remove too many entries
+                            */
+                            if (count == (num_docs-1)) {
+                                records_to_remove_method1++;
+                                ch_doc_counters[curr_ch][curr_doc] -= 1;
+                            // TODO: generalize this to take into account characters that only occur once
+                            } else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                    && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U')) {
+                                records_to_remove_method1++;
+                                ch_doc_counters[curr_ch][curr_doc] -= 1;
+                            } else {
+                                method1_done = true;
                             }
                             curr_pos++;
                         }
-                   // }
+                    }
                     
                     // Added this check to avoid removing all entries when there are no small
                     // values in the queue. TODO: fix this so the loop above understands this
                     // case
-                    if (records_to_remove_method2 == lcp_queue.size())
-                        records_to_remove_method2 = 0;
+                    //if (records_to_remove_method2 == lcp_queue.size())
+                    //    records_to_remove_method2 = 0;
 
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
@@ -873,7 +872,7 @@ public:
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
                     
                     // Remove those top n elements, and update counts
-                    update_lcp_queue(records_to_remove);
+                    update_lcp_queue(records_to_remove, method2_used);
                     
                     /* End of the DA Profiles code (except for some update statements below) */
 
@@ -1207,7 +1206,7 @@ public:
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
 
                     // Remove those top n elements, and update counts
-                    update_lcp_queue(records_to_remove);
+                    update_lcp_queue(records_to_remove, true);
                     
                     /* End of the DA Profiles code (except for some update statements below) */
 
@@ -1334,7 +1333,7 @@ private:
         }
     }
 
-    inline void update_lcp_queue(size_t num_to_remove) {
+    inline void update_lcp_queue(size_t num_to_remove, bool update_table) {
         /* remove the first n records from the lcp queue and update count matrix */
 
         for (size_t i = 0; i < num_to_remove; i++) {
@@ -1344,7 +1343,8 @@ private:
             bool is_end = lcp_queue[0].is_end;
 
             // Update <ch, doc> count matrix
-            //ch_doc_counters[curr_ch][curr_doc] -= 1;
+            if (update_table)
+                ch_doc_counters[curr_ch][curr_doc] -= 1;
 
             // Update the queue position lists
             num_records_ejected++;

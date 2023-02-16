@@ -54,7 +54,9 @@ int build_main(int argc, char** argv) {
     start = std::chrono::system_clock::now();
 
     run_build_parse_cmd(&build_opts, &helper_bins);
+    DONE_LOG((std::chrono::system_clock::now() - start));
 
+    STATUS_LOG("build_main", "building the parse and dictionary objects");
     pf_parsing pf(build_opts.output_ref, build_opts.pfp_w);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
