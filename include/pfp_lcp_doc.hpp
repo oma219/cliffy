@@ -513,7 +513,8 @@ public:
         auto sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
 
         // DEBUG: output file for storing variables
-        //std::ofstream debugging_fd (filename + ".output_data.txt");
+        // std::ofstream debugging_fd (filename + ".output_data.txt");
+        // leaveout_fd.open(filename + ".leave_one_data.txt");
 
         // Create a backup predecessor max lcp table, and re-initialize with max_lcp
         size_t num_blocks_of_32 = num_docs/32;
@@ -614,7 +615,7 @@ public:
                     size_t doc_of_LF_i = ref_build->doc_ends_rank(pos_of_LF_i);
 
                     // DEBUG: creates the debugging file
-                    // debugging_fd << pos << std::setw(20) << (curr_run_num-1) << std::setw(20) << curr_bwt_ch << std::setw(20) << sa_i << std::setw(20) << doc_of_LF_i << std::setw(20) << lcp_i << std::endl;
+                    //debugging_fd << pos << std::setw(20) << (curr_run_num-1) << std::setw(20) << curr_bwt_ch << std::setw(20) << sa_i << std::setw(20) << doc_of_LF_i << std::setw(20) << lcp_i << std::endl;
 
                     // Add the current suffix data to LCP queue 
                     queue_entry_t curr_entry = {curr_run_num-1, curr_bwt_ch, doc_of_LF_i, is_start, is_end, lcp_i};
@@ -799,7 +800,7 @@ public:
                         size_t curr_max_lcp = lcp_queue_profiles[start_pos + doc_of_LF_i];
                         size_t min_lcp = *std::min_element(lcp_vals_in_queue.begin()+true_pos+1, 
                                                            lcp_vals_in_queue.end());
-
+                        
                         lcp_queue_profiles[start_pos + doc_of_LF_i] = std::max(curr_max_lcp, min_lcp+1);
                     }
                     avg_queue_length += lcp_queue.size();
@@ -822,7 +823,7 @@ public:
                     size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
                     bool method1_used = false, method1_done = false, method2_used = false; // Turned off Method #2 for now 
 
-                    if (lcp_i <= 5) {
+                    if (lcp_i <= 7) {
                         method2_used = true;
                         records_to_remove_method2 = lcp_queue.size()-1;
                     } else {
@@ -1296,6 +1297,8 @@ private:
     FILE *ssa_file; // start of suffix array sample
     FILE *esa_file; // end of suffix array sample
 
+    std::ofstream leaveout_fd;
+
     inline void print_doc_profiles() {
         /* Go through the leftover lcp queue, and print all the profiles for run boundaries */
         for (size_t i = 0; i < lcp_queue.size(); i++) {
@@ -1321,6 +1324,13 @@ private:
             if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
                 FATAL_ERROR("issue occurred while writing to *.edap file");
 
+
+            // EXPERIMENTAL: Added for leave-one out experiment
+            // size_t sa_pos = lcp_queue[i].sa_i;
+            // size_t doc_num = lcp_queue[i].doc_num;
+            // if (doc_num == 0)
+            //     leaveout_fd << sa_pos << " "; 
+
             for (size_t j = 0; j < num_docs; j++) {
                 size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
                 lcp_queue_profiles.pop_front();
@@ -1329,7 +1339,14 @@ private:
                     error("SA write error 1");
                 if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
                     error("SA write error 1");
+
+                // EXPERIMENTAL: Added for leave-one out experiment
+                // if (doc_num == 0) 
+                //     leaveout_fd << prof_val << " ";
             }
+            // EXPERIMENTAL: Added for leave-one out experiment
+            // if (doc_num == 0)
+            //     leaveout_fd << "\n";
         }
     }
 
@@ -1341,6 +1358,12 @@ private:
             size_t curr_doc = lcp_queue[0].doc_num;  
             bool is_start = lcp_queue[0].is_start;
             bool is_end = lcp_queue[0].is_end;
+
+            // EXPERIMENTAL: Added for leave-one out experiment
+            // size_t sa_pos = lcp_queue[0].sa_i;
+            // size_t doc_num = lcp_queue[0].doc_num;
+            // if (doc_num == 0)
+            //     leaveout_fd << sa_pos << " "; 
 
             // Update <ch, doc> count matrix
             if (update_table)
@@ -1371,7 +1394,6 @@ private:
                 FATAL_ERROR("issue occurred while writing to *.edap file");
                 
             for (size_t j = 0; j < num_docs; j++) {
-                //size_t prof_val = lcp_queue_profiles.front();
                 size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
                 lcp_queue_profiles.pop_front();
 
@@ -1379,7 +1401,14 @@ private:
                     error("SA write error 1");
                 if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
                     error("SA write error 1");
+                
+                // EXPERIMENTAL: Added for leave-one out experiment
+                // if (doc_num == 0) 
+                //     leaveout_fd << prof_val << " ";
             }
+            // EXPERIMENTAL: Added for leave-one out experiment
+            // if (doc_num == 0)
+            //     leaveout_fd << "\n";
         }
     }
 
