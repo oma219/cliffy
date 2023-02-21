@@ -806,8 +806,14 @@ public:
                     avg_queue_length += lcp_queue.size();
                     total_pos_traversed += queue_pos_for_traversal.size();
 
-                    if (lcp_queue.size() >= MAXQUEUELENGTH)
+                    if (lcp_queue.size() >= MAXQUEUELENGTH){
+                        
+                        std::cerr << "\nlcp queue length = " << lcp_vals_in_queue.size() << std::endl;
+                        for (auto x: lcp_queue)
+                            std::cerr << x << "\n";
+
                         FATAL_ERROR("queue length during construction grew too large");
+                    }
                     
                     // Add the current profile to the vector (should always be multiple of # of docs)
                     for (auto elem: curr_da_profile)
@@ -818,12 +824,12 @@ public:
 
                     // Try to trim the LCP queue and adjust the count matrix ...
                     // Method #1: non-heuristic by removing entries with multiples 
-                    // Method #2: heuristic since we remove all entries above a small lcp value (7)
+                    // Method #2: heuristic since we remove all entries above a small lcp value (5)
                     size_t curr_pos = 0;
-                    size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0;
-                    bool method1_used = false, method1_done = false, method2_used = false; // Turned off Method #2 for now 
+                    size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0, records_to_remove_method3 = 0;
+                    bool method1_used = false, method1_done = false, method2_used = false, method3_used = false;
 
-                    if (lcp_i <= 7) {
+                    if (lcp_i <= 5) {
                         method2_used = true;
                         records_to_remove_method2 = lcp_queue.size()-1;
                     } else {
@@ -859,21 +865,36 @@ public:
                             curr_pos++;
                         }
                     }
-                    
-                    // Added this check to avoid removing all entries when there are no small
-                    // values in the queue. TODO: fix this so the loop above understands this
-                    // case
-                    //if (records_to_remove_method2 == lcp_queue.size())
-                    //    records_to_remove_method2 = 0;
+
+                    // Method #3: heuristic that checks when the queue is starting to get semi-large
+                    // like above 5000 and check if a majority of the characters are non-DNA characters, 
+                    // that could be "clogging" up the queue.
+                    //
+                    // IMPORTANT: this if statement is separate since it only should be checked in special cases
+                    // where the queue is long.
+                    if (lcp_queue.size() >= 5000) {
+                        size_t non_usual_chars = 0;
+                        auto is_usual_char = [] (auto ch) {return (ch == 'A' || ch == 'C' || ch == 'G' || ch == 'T' || ch == 'U');};
+
+                        for (auto entry: lcp_queue) {
+                            if (!is_usual_char(entry.bwt_ch))
+                                non_usual_chars++;
+                        }
+
+                        if ((non_usual_chars+0.0)/lcp_queue.size() > 0.90) {
+                            records_to_remove_method3 = lcp_queue.size()-1;
+                            method3_used = true;
+                        }
+                    }
 
                     // Take the maximum value from the two methods above, BUT
                     // we cannot reduce the queue to empty because we need to 
                     // make sure to update records that are the end of runs
-                    size_t records_to_remove = std::max(records_to_remove_method1, records_to_remove_method2);
+                    size_t records_to_remove = std::max(std::max(records_to_remove_method1, records_to_remove_method2), records_to_remove_method3);
                     records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
                     
                     // Remove those top n elements, and update counts
-                    update_lcp_queue(records_to_remove, method2_used);
+                    update_lcp_queue(records_to_remove, method2_used || method3_used);
                     
                     /* End of the DA Profiles code (except for some update statements below) */
 

@@ -28,10 +28,10 @@
                                   std::fprintf(stderr, "\n");} while (0)
 
 // Defintions
-#define PFPDOC_VERSION "1.0.5"
+#define PFPDOC_VERSION "1.0.6"
 
 #define DOCWIDTH 2 // 5
-#define MAXQUEUELENGTH 5000000
+#define MAXQUEUELENGTH 1000000
 #define MAXLCPVALUE 65535 // 2^16 - 1
 
 #define AVX2_PRESENT __AVX2__ 

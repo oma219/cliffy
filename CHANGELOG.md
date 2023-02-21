@@ -1,10 +1,14 @@
 # PFP-Doc Change Log
 
-## v1.0.5 - latest
+## v1.0.6 - latest
+- Added another method to trim the construction queue in scenarios such as large block of suffixes that 
+  begin with Ns or any character that is not a usual DNA/RNA character.
+
+## v1.0.5
 - Used the second method for lcp queue trimming which is a heuristic, anytime we encounter an lcp value <= 5, we flush the queue
 - Made a change to update_lcp_queue to incorporate knowledge of which method was used for trimming
 
-## v1.0.4 - latest
+## v1.0.4 
 - Turned off second method for lcp queue trimming to avoid errors
 - Fixed the non-heuristic method for lcp queue trimming by updating the ch_doc_counter table 
   during the loop
