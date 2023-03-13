@@ -806,11 +806,12 @@ public:
                     avg_queue_length += lcp_queue.size();
                     total_pos_traversed += queue_pos_for_traversal.size();
 
+                    //std::cerr << lcp_queue.size() << "   " <<  queue_pos_for_traversal.size() << "  " << curr_bwt_ch << " " << doc_of_LF_i  << std::endl;
+
                     if (lcp_queue.size() >= MAXQUEUELENGTH){
-                        
-                        std::cerr << "\nlcp queue length = " << lcp_vals_in_queue.size() << std::endl;
-                        for (auto x: lcp_queue)
-                            std::cerr << x << "\n";
+                        // std::cerr << "\nlcp queue length = " << lcp_vals_in_queue.size() << std::endl;
+                        // for (auto x: lcp_queue)
+                        //     std::cerr << x << "\n";
 
                         FATAL_ERROR("queue length during construction grew too large");
                     }
@@ -822,12 +823,13 @@ public:
                     assert(lcp_queue_profiles.size() % ref_build->num_docs == 0);
                     assert(lcp_queue_profiles.size() == (lcp_queue.size() * ref_build->num_docs));
 
+                    /*
                     // Try to trim the LCP queue and adjust the count matrix ...
                     // Method #1: non-heuristic by removing entries with multiples 
                     // Method #2: heuristic since we remove all entries above a small lcp value (5)
                     size_t curr_pos = 0;
-                    size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0, records_to_remove_method3 = 0;
-                    bool method1_used = false, method1_done = false, method2_used = false, method3_used = false;
+                    size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0, records_to_remove_method3 = 0, records_to_remove_method4 = 0;
+                    bool method1_used = false, method1_done = false, method2_used = false, method3_used = false, method4_used = false;
 
                     if (lcp_i <= 5) {
                         method2_used = true;
@@ -846,11 +848,10 @@ public:
                                 if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
                                     count++;
                             }
-                           /*
-                            * IMPORTANT: I added the decrement statements below since we need
-                            * an updated ch_doc_counters in order to make correct decisions. The
-                            * problem was that sometimes it would remove too many entries
-                            */
+                           
+                            // IMPORTANT: I added the decrement statements below since we need
+                            // an updated ch_doc_counters in order to make correct decisions. The
+                            // problem was that sometimes it would remove too many entries
                             if (count == (num_docs-1)) {
                                 records_to_remove_method1++;
                                 ch_doc_counters[curr_ch][curr_doc] -= 1;
@@ -872,7 +873,7 @@ public:
                     //
                     // IMPORTANT: this if statement is separate since it only should be checked in special cases
                     // where the queue is long.
-                    if (lcp_queue.size() >= 5000) {
+                    if (pos % 10000 == 0 && lcp_queue.size() >= 5000) {
                         size_t non_usual_chars = 0;
                         auto is_usual_char = [] (auto ch) {return (ch == 'A' || ch == 'C' || ch == 'G' || ch == 'T' || ch == 'U');};
 
@@ -895,6 +896,110 @@ public:
                     
                     // Remove those top n elements, and update counts
                     update_lcp_queue(records_to_remove, method2_used || method3_used);
+
+                    */
+
+
+
+
+                    // -------------- BEGIN ---------------------
+                    /* Try to trim the LCP queue and adjust the count matrix. Below are a 
+                     * list of methods to trim the queue ordered based on how optimal they
+                     * in terms of reducing the size of the queue.
+                     *
+                     *     Heuristic Methods:
+                     *         #1 - Removes all entries above a small lcp value (reduces queue to 1)
+                     *         #2 - Removes all entries if queue is filled with non-relevant characters
+                     *              like Ns in DNA database (reduces queue to 1)
+                     *         #3 - Fail safe -> keep queue under a certain length at all times (reduces
+                     *                           the queue to that certain length)
+                     *
+                     *     Non-heuristic Methods:  
+                     *         #4 - Removes entries in the queue whose document array profile 
+                     *              has been finalized (reduces the queue by 0 <= x <= size-1) entries
+                     *
+                     *     IMPORTANT: We need to know if we used a heuristic or non-heuristic method when
+                     *                we go to trim the queue in order to know if we should adjust the 
+                     *                count matrix.
+                     * 
+                     */
+                    size_t records_to_remove_heuristic = 0, records_to_remove_non_heuristic = 0;
+                    bool heuristic_used = false, non_heuristic_used = false;
+
+                    // Method #1 - Heuristic
+                    if (lcp_i <= 13) {
+                        heuristic_used = true;
+                        records_to_remove_heuristic = lcp_queue.size()-1;
+                    // Method #2 - Heuristic 
+                    } else if (lcp_queue.size() % 1000 == 0 && lcp_queue.size() >= 1000) {
+                        size_t non_usual_chars = 0;
+                        auto is_usual_char = [] (auto ch) {return (ch == 'A' || ch == 'C' || ch == 'G' || ch == 'T' || ch == 'U');};
+
+                        for (auto entry: lcp_queue) {
+                            if (!is_usual_char(entry.bwt_ch))
+                                non_usual_chars++;
+                        }
+
+                        if ((non_usual_chars+0.0)/lcp_queue.size() > 0.90) {
+                            records_to_remove_heuristic = lcp_queue.size()-1;
+                            heuristic_used = true;
+                        }
+                    // Method #3 - Heuristic
+                    } else if (lcp_queue.size() > 2500) {
+                        records_to_remove_heuristic = lcp_queue.size() - 2500;
+                        heuristic_used = true;
+                    }
+
+                    /* 
+                     * If using heuristics did not yield flushing the queue, let's
+                     * try to see if using a non-heuristic method will do better.
+                     */
+                    // Method #4 - Non-heuristic
+                    if (pos % 50 == 0 && records_to_remove_heuristic != lcp_queue.size() - 1) {
+                        size_t curr_pos = 0;
+                        bool non_heuristic_done = false;
+                        non_heuristic_used = true;
+                        while (curr_pos < lcp_queue.size() && !non_heuristic_done) {
+                            uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
+                            size_t curr_doc = lcp_queue[curr_pos].doc_num;
+                            assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
+
+                            size_t current_run_num = lcp_queue[curr_pos].run_num;
+                            size_t count = 0;
+
+                            for (size_t i = 0; i < num_docs; i++) {
+                                if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
+                                    count++;
+                            }
+                           /*
+                            * IMPORTANT: I added the decrement statements below since we need
+                            * an updated ch_doc_counters in order to make correct decisions. The
+                            * problem was that sometimes it would remove too many entries
+                            */
+                            if (count == (num_docs-1)) {
+                                records_to_remove_non_heuristic++;
+                                ch_doc_counters[curr_ch][curr_doc] -= 1;
+                            // TODO: generalize this to take into account characters that only occur once
+                            } else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
+                                    && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U')) {
+                                records_to_remove_non_heuristic++;
+                                ch_doc_counters[curr_ch][curr_doc] -= 1;
+                            } else {
+                                non_heuristic_done = true;
+                            }
+                            curr_pos++;
+                        }
+                    }
+
+                    // Take the maximum value from the two methods above, and 
+                    // depending on which method is used. Make sure to update
+                    // the character/doc table.
+                    if (records_to_remove_heuristic > records_to_remove_non_heuristic) 
+                        update_lcp_queue(std::min(records_to_remove_heuristic, lcp_queue.size()-1), true);
+                    else if (records_to_remove_non_heuristic > 0)
+                        update_lcp_queue(std::min(records_to_remove_non_heuristic, lcp_queue.size()-1), false);
+
+                    // -------------- END -----------------------
                     
                     /* End of the DA Profiles code (except for some update statements below) */
 
