@@ -1,6 +1,9 @@
 # PFP-Doc Change Log
 
-## v1.0.6 - latest
+## v1.0.7 - latest
+- Updated compilation to avoid specific architecture flags
+
+## v1.0.6
 - Added another method to trim the construction queue in scenarios such as large block of suffixes that 
   begin with Ns or any character that is not a usual DNA/RNA character.
 

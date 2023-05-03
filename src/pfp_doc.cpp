@@ -367,7 +367,7 @@ int pfpdoc_usage() {
 
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
-    std::fprintf(stderr, "\033[32m\npfp-doc version: %s\033[m\n", PFPDOC_VERSION);
+    std::fprintf(stderr, "\033[1m\033[31m\npfp-doc version: %s\033[m\033[0m\n", PFPDOC_VERSION);
     
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 

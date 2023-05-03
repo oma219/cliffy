@@ -19,22 +19,21 @@
                               std::fprintf(stderr, "\n\n"); std::exit(1);} while(0)
 #define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\n\n\033[31mAssertion Failed:\033[m %s\n\n", msg); \
                                                    std::exit(1);}} while(0)
-#define STATUS_LOG(x, ...) do {std::fprintf(stderr, "[%s] ", x); std::fprintf(stderr, __VA_ARGS__ ); \
+#define STATUS_LOG(x, ...) do {std::fprintf(stderr, "\033[32m[%s] \033[0m", x); std::fprintf(stderr, __VA_ARGS__ ); \
                                std::fprintf(stderr, " ... ");} while(0)
 #define DONE_LOG(x) do {auto sec = std::chrono::duration<double>(x); \
                         std::fprintf(stderr, "done.  (%.3f sec)\n", sec.count());} while(0)
-#define FORCE_LOG(func, ...)  do {std::fprintf(stderr, "[%s] ", func); \
+#define FORCE_LOG(func, ...)  do {std::fprintf(stderr, "\033[32m[%s] \033[m", func); \
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n");} while (0)
 
 // Defintions
-#define PFPDOC_VERSION "1.0.6"
+#define PFPDOC_VERSION "1.0.7"
 
 #define DOCWIDTH 2
 #define MAXQUEUELENGTH 1000000
 #define MAXLCPVALUE 65535 // 2^16 - 1
 #define MAXDOCS 65535
-//#define NUMCOLSFORTABLE 7
 
 #define AVX2_PRESENT __AVX2__ 
 #define AVX512BW_PRESENT __AVX512BW__ 
