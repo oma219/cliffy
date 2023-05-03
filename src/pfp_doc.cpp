@@ -22,6 +22,7 @@
 #include <pfp_lcp_doc.hpp>
 #include <doc_queries.hpp>
 #include <immintrin.h>
+#include <getopt.h>
 
 int build_main(int argc, char** argv) {
     /* main method for build the document profiles */
@@ -43,6 +44,15 @@ int build_main(int argc, char** argv) {
     RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
+    // Make sure that document numbers can be store in 2 bytes, and 
+    // it makes sense with respect to k
+    if (ref_build.num_docs >= MAXDOCS)
+        FATAL_ERROR("An index cannot be build over %ld documents, "
+                    "please reduce to a max of 65,535 docs.", ref_build.num_docs);
+    if ((build_opts.use_taxcomp || build_opts.use_topk) 
+        && ref_build.num_docs < build_opts.numcolsintable)
+        FATAL_ERROR("the k provided is larger than the number of documents.");
+
     // Determine the paths to the BigBWT executables
     HelperPrograms helper_bins;
     if (!std::getenv("PFPDOC_BUILD_DIR")) {FATAL_ERROR("Need to set PFPDOC_BUILD_DIR environment variable.");}
@@ -62,12 +72,24 @@ int build_main(int argc, char** argv) {
     pf_parsing pf(build_opts.output_ref, build_opts.pfp_w);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
+    // Print info regarding the compression scheme being used
+    std::cerr << "\n";
+    if (build_opts.use_taxcomp)
+        FORCE_LOG("build_main", "taxonomic compression of the doc profiles will be used");
+    else if (build_opts.use_topk)
+        FORCE_LOG("build_main", "top-k compression of the doc profile will be used");
+    else   
+        FORCE_LOG("build_main", "no compression scheme will be used for the doc profiles");
+
     // Builds the BWT, SA, LCP, and document array profiles and writes to a file
     STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
     start = std::chrono::system_clock::now();
 
-    pfp_lcp lcp(1, pf, build_opts.output_ref, &ref_build);
+    pfp_lcp lcp(build_opts.use_taxcomp, build_opts.use_topk, build_opts.numcolsintable, pf, build_opts.output_ref, &ref_build);
     DONE_LOG((std::chrono::system_clock::now() - start));
+
+    // Print stats before closing out
+    FORCE_LOG("build_main", "finished building, number of BWT runs = %ld", lcp.total_num_runs);
     std::cerr << "\n";
     
     return 0;
@@ -224,14 +246,30 @@ void print_build_status_info(PFPDocBuildOptions* opts) {
 
 void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
     /* parses the arguments for the build sub-command, and returns a struct with arguments */
+
+    static struct option long_options[] = {
+        {"help",      no_argument, NULL,  'h'},
+        {"filelist",   required_argument, NULL,  'f'},
+        {"output",       required_argument, NULL,  'o'},
+        {"revcomp",   no_argument, NULL,  'r'},
+        {"taxcomp",   no_argument, NULL,  't'},
+        {"num-col",   required_argument, NULL,  'k'},
+        {"top-k",   no_argument, NULL,  'p'},
+        {0, 0, 0,  0}
+    };
+
     int c = 0;
-    while ((c = getopt(argc, argv, "hf:o:w:r")) >= 0) {
+    int long_index = 0;
+    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:p", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_build_usage(); std::exit(1);
             case 'f': opts->input_list.assign(optarg); break;
             case 'o': opts->output_prefix.assign(optarg); break;
             case 'w': opts->pfp_w = std::atoi(optarg); break;
             case 'r': opts->use_rcomp = true; break;
+            case 't': opts->use_taxcomp = true; break;
+            case 'p': opts->use_topk = true; break;
+            case 'k': opts->numcolsintable = std::max(std::atoi(optarg), 2); break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
     }
@@ -272,11 +310,16 @@ int pfpdoc_build_usage() {
     std::fprintf(stderr, "Usage: pfp_doc build [options]\n\n");
 
     std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "\t%-10sprints this usage message\n", "-h");
-    std::fprintf(stderr, "\t%-10spath to a file-list of genomes to use\n", "-f [arg]");
-    std::fprintf(stderr, "\t%-10soutput prefix path if using -f option\n", "-o [arg]");
-    std::fprintf(stderr, "\t%-10swindow size used for pfp (default: 10)\n", "-w [INT]");
-    std::fprintf(stderr, "\t%-10sinclude the reverse-complement of sequence (default: false)\n\n", "-r");
+    std::fprintf(stderr, "\t%-25sprints this usage message\n", "-h, --help");
+    std::fprintf(stderr, "\t%-15s%-10spath to a file-list of genomes to use\n", "-f, --filelist", "[FILE]");
+    std::fprintf(stderr, "\t%-15s%-10soutput prefix path if using -f option\n", "-o, --output", "[arg]");
+    std::fprintf(stderr, "\t%-25sinclude the reverse-complement of sequence (default: false)\n\n", "-r, --revcomp");
+
+    std::fprintf(stderr, "\t%-25suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
+    std::fprintf(stderr, "\t%-25suse top-k compression of the document array (default: false)\n", "-p, --top-k");
+    std::fprintf(stderr, "\t%-25snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col");
+
+    std::fprintf(stderr, "\t%-15s%-10swindow size used for pfp (default: 10)\n\n", "-w, --window", "[INT]");
 
     return 0;
 }
@@ -324,7 +367,7 @@ int pfpdoc_usage() {
 
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
-    std::fprintf(stderr, "pfp-doc version: %s\n", PFPDOC_VERSION);
+    std::fprintf(stderr, "\033[32m\npfp-doc version: %s\033[m\n", PFPDOC_VERSION);
     
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 

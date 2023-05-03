@@ -58,14 +58,15 @@ public:
     size_t length = 0; // length of the current BWT run
 
     bool rle; // run-length encode the BWT
-
+    size_t total_num_runs = 0;
+    size_t NUMCOLSFORTABLE = 0; 
 
     /*
      * Second alternate approach: avoids usage of predecessor lcp table
      * since it is time-consuming to continue updating a table that has
      * a size of num_docs x num_characters
      */
-    pfp_lcp(size_t random_param, size_t random_param2, pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, bool rle_ = true) : 
+    pfp_lcp(size_t random_param, size_t random_param2, size_t random_param3, pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, bool rle_ = true) : 
                 pf(pfp_),
                 min_s(1, pf.n),
                 pos_s(1,0),
@@ -438,17 +439,20 @@ public:
      * reduce the number of positions that need to be traversed 
      * in the lcp queue
      */
-    pfp_lcp(size_t random_param, pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, bool rle_ = true) : 
+    pfp_lcp(bool taxcomp, bool topk, size_t num_cols, pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, bool rle_ = true) : 
                 pf(pfp_),
                 min_s(1, pf.n),
                 pos_s(1,0),
                 head(0),
+                NUMCOLSFORTABLE(num_cols),
                 num_docs(ref_build->num_docs),
                 ch_doc_counters(256, std::vector<size_t>(ref_build->num_docs, 0)),
                 ch_doc_encountered(256, std::vector<bool>(ref_build->num_docs, false)),
                 predecessor_max_lcp(256, std::vector<size_t>(ref_build->num_docs, ref_build->total_length)),
                 queue_pos_per_tuple(256, std::vector<std::deque<size_t>>(ref_build->num_docs, std::deque<size_t>(0))),
-                rle(rle_)
+                rle(rle_),
+                use_taxcomp(taxcomp),
+                use_topk(topk)
                 // heads(1, 0)
     {       
         // Opening output files
@@ -478,18 +482,48 @@ public:
                 error("open() file " + outfile + " failed");
         }
 
-        outfile = filename + std::string(".sdap");
-        if ((sdap_file = fopen(outfile.c_str(), "w")) == nullptr) {
-            error("open() file " + outfile + " failed");
-        }
-        if (fwrite(&ref_build->num_docs, sizeof(size_t), 1, sdap_file) != 1)
-            error("SDAP write error: number of documents");
 
-        outfile = filename + std::string(".edap");
-        if ((edap_file = fopen(outfile.c_str(), "w")) == nullptr)
-            error("open() file " + outfile + " failed");
-        if (fwrite(&ref_build->num_docs, sizeof(size_t), 1, edap_file) != 1)
-            error("SDAP write error: number of documents");
+        if (taxcomp) {
+            outfile = filename + std::string(".taxcomp.sdap");
+            if ((sdap_tax = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+            outfile = filename + std::string(".taxcomp.edap");
+            if ((edap_tax = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+
+            outfile = filename + std::string(".taxcomp.of.sdap");
+            if ((sdap_overtax = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+            if (fwrite(&ref_build->num_docs, sizeof(size_t), 1, sdap_overtax) != 1)
+                error("SDAP write error: number of documents");
+            outfile = filename + std::string(".taxcomp.of.edap");
+            if ((edap_overtax = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+            if (fwrite(&ref_build->num_docs, sizeof(size_t), 1, edap_overtax) != 1)
+                error("EDAP write error: number of documents");
+
+            tax_sdap_overflow_ptr += sizeof(size_t);
+            tax_edap_overflow_ptr += sizeof(size_t);
+        } else if (topk) {
+            outfile = filename + std::string(".topk.sdap");
+            if ((sdap_topk = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+            outfile = filename + std::string(".topk.edap");
+            if ((edap_topk = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+        } else {
+            outfile = filename + std::string(".sdap");
+            if ((sdap_file = fopen(outfile.c_str(), "w")) == nullptr) 
+                error("open() file " + outfile + " failed");
+            if (fwrite(&ref_build->num_docs, sizeof(size_t), 1, sdap_file) != 1)
+                error("SDAP write error: number of documents");
+
+            outfile = filename + std::string(".edap");
+            if ((edap_file = fopen(outfile.c_str(), "w")) == nullptr)
+                error("open() file " + outfile + " failed");
+            if (fwrite(&ref_build->num_docs, sizeof(size_t), 1, edap_file) != 1)
+                error("SDAP write error: number of documents");
+        }
 
         assert(pf.dict.d[pf.dict.saD[0]] == EndOfDict);
 
@@ -528,9 +562,9 @@ public:
         for (size_t i = 0; i < 256; i++)
             for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
                 predecessor_max_lcp_2[i][j] = max_lcp_init;
-        for (size_t i = 0; i < 256; i++)
-            for (size_t j = 0; j < num_docs; j++)
-                predecessor_max_lcp[i][j] = max_lcp_init;
+        // for (size_t i = 0; i < 256; i++)
+        //     for (size_t j = 0; j < num_docs; j++)
+        //         predecessor_max_lcp[i][j] = max_lcp_init;
 
         inc(curr);
         while (curr.i < pf.dict.saD.size())
@@ -711,8 +745,7 @@ public:
 
                     /* End of SIMD changes */
 
-                    // CHECK CODE: makes sure the predecessor table is correct
-
+                    // CHECK CODE: Makes sure the predecessor table is correct
                     // for (size_t i = 0; i < 256; i++) {
                     //     for (size_t j = 0; j < num_docs; j++) {
                             
@@ -725,10 +758,6 @@ public:
                     //         }
                     //     }
                     // }
-                    // std::cout << "we passed the test!" << std::endl;
-
-                    // END OF CHECK
-
 
                     // Initialize the curr_da_profile with max lcp for predecessor 
                     // occurrences of the same BWT character from another document, and
@@ -806,15 +835,9 @@ public:
                     avg_queue_length += lcp_queue.size();
                     total_pos_traversed += queue_pos_for_traversal.size();
 
-                    //std::cerr << lcp_queue.size() << "   " <<  queue_pos_for_traversal.size() << "  " << curr_bwt_ch << " " << doc_of_LF_i  << std::endl;
-
-                    if (lcp_queue.size() >= MAXQUEUELENGTH){
-                        // std::cerr << "\nlcp queue length = " << lcp_vals_in_queue.size() << std::endl;
-                        // for (auto x: lcp_queue)
-                        //     std::cerr << x << "\n";
-
+                    if (lcp_queue.size() >= MAXQUEUELENGTH)
                         FATAL_ERROR("queue length during construction grew too large");
-                    }
+                    
                     
                     // Add the current profile to the vector (should always be multiple of # of docs)
                     for (auto elem: curr_da_profile)
@@ -823,86 +846,7 @@ public:
                     assert(lcp_queue_profiles.size() % ref_build->num_docs == 0);
                     assert(lcp_queue_profiles.size() == (lcp_queue.size() * ref_build->num_docs));
 
-                    /*
-                    // Try to trim the LCP queue and adjust the count matrix ...
-                    // Method #1: non-heuristic by removing entries with multiples 
-                    // Method #2: heuristic since we remove all entries above a small lcp value (5)
-                    size_t curr_pos = 0;
-                    size_t records_to_remove_method1 = 0, records_to_remove_method2 = 0, records_to_remove_method3 = 0, records_to_remove_method4 = 0;
-                    bool method1_used = false, method1_done = false, method2_used = false, method3_used = false, method4_used = false;
 
-                    if (lcp_i <= 5) {
-                        method2_used = true;
-                        records_to_remove_method2 = lcp_queue.size()-1;
-                    } else {
-                        method1_used = true;
-                        while (curr_pos < lcp_queue.size() && !method1_done) {
-                            uint8_t curr_ch = lcp_queue[curr_pos].bwt_ch;
-                            size_t curr_doc = lcp_queue[curr_pos].doc_num;
-                            assert(ch_doc_counters[curr_ch][curr_doc] >= 1);
-
-                            size_t current_run_num = lcp_queue[curr_pos].run_num;
-                            size_t count = 0;
-
-                            for (size_t i = 0; i < num_docs; i++) {
-                                if (i != curr_doc && ch_doc_counters[curr_ch][i] >= 1)
-                                    count++;
-                            }
-                           
-                            // IMPORTANT: I added the decrement statements below since we need
-                            // an updated ch_doc_counters in order to make correct decisions. The
-                            // problem was that sometimes it would remove too many entries
-                            if (count == (num_docs-1)) {
-                                records_to_remove_method1++;
-                                ch_doc_counters[curr_ch][curr_doc] -= 1;
-                            // TODO: generalize this to take into account characters that only occur once
-                            } else if (curr_ch == EndOfDict || (curr_ch != 'A' && curr_ch != 'C'
-                                    && curr_ch != 'G' && curr_ch != 'T' && curr_ch != 'U')) {
-                                records_to_remove_method1++;
-                                ch_doc_counters[curr_ch][curr_doc] -= 1;
-                            } else {
-                                method1_done = true;
-                            }
-                            curr_pos++;
-                        }
-                    }
-
-                    // Method #3: heuristic that checks when the queue is starting to get semi-large
-                    // like above 5000 and check if a majority of the characters are non-DNA characters, 
-                    // that could be "clogging" up the queue.
-                    //
-                    // IMPORTANT: this if statement is separate since it only should be checked in special cases
-                    // where the queue is long.
-                    if (pos % 10000 == 0 && lcp_queue.size() >= 5000) {
-                        size_t non_usual_chars = 0;
-                        auto is_usual_char = [] (auto ch) {return (ch == 'A' || ch == 'C' || ch == 'G' || ch == 'T' || ch == 'U');};
-
-                        for (auto entry: lcp_queue) {
-                            if (!is_usual_char(entry.bwt_ch))
-                                non_usual_chars++;
-                        }
-
-                        if ((non_usual_chars+0.0)/lcp_queue.size() > 0.90) {
-                            records_to_remove_method3 = lcp_queue.size()-1;
-                            method3_used = true;
-                        }
-                    }
-
-                    // Take the maximum value from the two methods above, BUT
-                    // we cannot reduce the queue to empty because we need to 
-                    // make sure to update records that are the end of runs
-                    size_t records_to_remove = std::max(std::max(records_to_remove_method1, records_to_remove_method2), records_to_remove_method3);
-                    records_to_remove = std::min(records_to_remove, lcp_queue.size()-1);
-                    
-                    // Remove those top n elements, and update counts
-                    update_lcp_queue(records_to_remove, method2_used || method3_used);
-
-                    */
-
-
-
-
-                    // -------------- BEGIN ---------------------
                     /* Try to trim the LCP queue and adjust the count matrix. Below are a 
                      * list of methods to trim the queue ordered based on how optimal they
                      * in terms of reducing the size of the queue.
@@ -927,7 +871,7 @@ public:
                     bool heuristic_used = false, non_heuristic_used = false;
 
                     // Method #1 - Heuristic
-                    if (lcp_i <= 13) {
+                    if (lcp_i <= 8) {
                         heuristic_used = true;
                         records_to_remove_heuristic = lcp_queue.size()-1;
                     // Method #2 - Heuristic 
@@ -948,7 +892,7 @@ public:
                     } else if (lcp_queue.size() > 2500) {
                         records_to_remove_heuristic = lcp_queue.size() - 2500;
                         heuristic_used = true;
-                    }
+                    } 
 
                     /* 
                      * If using heuristics did not yield flushing the queue, let's
@@ -999,7 +943,12 @@ public:
                     else if (records_to_remove_non_heuristic > 0)
                         update_lcp_queue(std::min(records_to_remove_non_heuristic, lcp_queue.size()-1), false);
 
-                    // -------------- END -----------------------
+                    // if (curr_run_num == 10) {
+                    //     std::cout << "\n\nFINISHED\npos = " << pos << std::endl;
+                    //     std::exit(1);
+                    // }
+                    
+                    // std::cout << tax_sdap_overflow_ptr << " " << tax_edap_overflow_ptr << std::endl;
                     
                     /* End of the DA Profiles code (except for some update statements below) */
 
@@ -1023,20 +972,29 @@ public:
                 inc(curr);
             }
         }
-        
+
         // print last BWT char and SA sample
         print_sa();
         print_bwt();
         print_doc_profiles();
+        total_num_runs = curr_run_num;
 
         // Close output files
-        fclose(ssa_file);
-        fclose(esa_file);
+        fclose(ssa_file); fclose(esa_file);
         fclose(bwt_file);
         fclose(lcp_file);
 
         if (rle)
             fclose(bwt_file_len);
+
+        if (taxcomp) {
+            fclose(sdap_tax); fclose(edap_tax);
+            fclose(sdap_overtax); fclose(edap_overtax);
+        } else if (topk) {
+            fclose(sdap_topk); fclose(edap_topk);
+        } else {
+            fclose(sdap_file); fclose(edap_file);
+        }
     }
 
     // Original constructor: The main difference is that it will iterate through 
@@ -1372,6 +1330,8 @@ public:
             fclose(bwt_file_len);
     }
 
+
+
 private:
     typedef struct
     {
@@ -1414,9 +1374,15 @@ private:
     size_t esa = 0;
     size_t num_docs = 0;
     size_t num_records_ejected = 0;
+    bool use_taxcomp = false;
+    bool use_topk = false;
+    size_t tax_sdap_overflow_ptr = 0, tax_edap_overflow_ptr = 0;
 
     FILE *sdap_file; // start of document array profiles
     FILE *edap_file; // end of document array profiles
+    FILE *sdap_tax, *edap_tax;
+    FILE *sdap_overtax, *edap_overtax;
+    FILE *sdap_topk, *edap_topk;
     FILE *lcp_file; // LCP array
     FILE *bwt_file; // BWT (run characters if using rle)
     FILE *bwt_file_len; // lengths file is using rle
@@ -1425,8 +1391,15 @@ private:
 
     std::ofstream leaveout_fd;
 
-    inline void print_doc_profiles() {
+    void print_doc_profiles() {
         /* Go through the leftover lcp queue, and print all the profiles for run boundaries */
+        
+        std::vector<size_t> curr_profile;
+        std::vector<size_t> left_increases, right_increases;
+        curr_profile.reserve(num_docs);
+        left_increases.reserve(1000);
+        right_increases.reserve(1000);
+
         for (size_t i = 0; i < lcp_queue.size(); i++) {
             uint8_t curr_ch = lcp_queue[i].bwt_ch;
             bool is_start = lcp_queue[i].is_start;
@@ -1435,61 +1408,136 @@ private:
             num_records_ejected++;
 
             /*
-            if (is_start) {
-                std::cout << "----------------- FINAL PROFILE: ";
-                for (size_t j = 0; j < num_docs; j++)
-                    std::cout << lcp_queue_profiles[j] << " ";
-                std::cout << "\n";
-            }*/
+             * Write the data-structure to disk based on the 
+             * command-line option chosen.
+             */
+            if (!use_taxcomp && !use_topk) {
+                // remove the DA profile, and print if it's a boundary.
+                // The format for each entry is print out the character of this run
+                // followed by all the DA entries in DOCWIDTH bytes.
+                if (is_start && fwrite(&curr_ch, 1, 1, sdap_file) != 1)
+                    FATAL_ERROR("issue occurred while writing to *.sdap file");
+                if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
+                    FATAL_ERROR("issue occurred while writing to *.edap file");
 
-            // remove the DA profile, and print if it's a boundary.
-            // The format for each entry is print out the character of this run
-            // followed by all the DA entries in DOCWIDTH bytes.
-            if (is_start && fwrite(&curr_ch, 1, 1, sdap_file) != 1)
-                FATAL_ERROR("issue occurred while writing to *.sdap file");
-            if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
-                FATAL_ERROR("issue occurred while writing to *.edap file");
+                for (size_t j = 0; j < num_docs; j++) {
+                    size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                    lcp_queue_profiles.pop_front();
 
+                    if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
+                        error("SA write error 1");
+                    if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
+                        error("SA write error 1");
+                }
+            } else if (use_taxcomp) {
+                size_t curr_val = 0, prev_max = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                left_increases.push_back(0);
+                left_increases.push_back(prev_max);
 
-            // EXPERIMENTAL: Added for leave-one out experiment
-            // size_t sa_pos = lcp_queue[i].sa_i;
-            // size_t doc_num = lcp_queue[i].doc_num;
-            // if (doc_num == 0)
-            //     leaveout_fd << sa_pos << " "; 
+                // Read the full profile, and keep track of increases from left
+                for (size_t j = 0; j < num_docs; j++) {
+                    curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                    lcp_queue_profiles.pop_front();
+                    curr_profile[j] = curr_val;
 
-            for (size_t j = 0; j < num_docs; j++) {
-                size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
-                lcp_queue_profiles.pop_front();
+                    if (curr_val > prev_max) {
+                        left_increases.push_back(j);
+                        left_increases.push_back(curr_val);
+                        prev_max = curr_val;
+                    }
+                }
+                ASSERT((left_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
+                size_t num_left_inc = left_increases.size();
+                size_t num_right_inc = 0;
+                
+                if (is_start || is_end) {
+                    // Read the full profile, and keep track of increases from right
+                    curr_val = 0; prev_max = curr_profile[num_docs-1];
+                    right_increases.push_back(num_docs-1);
+                    right_increases.push_back(prev_max);
 
-                if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
-                    error("SA write error 1");
-                if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
-                    error("SA write error 1");
+                    for (int j = num_docs-1; j >= 0; j--) {
+                        if (curr_profile[j] > prev_max) {
+                            right_increases.push_back(j);
+                            right_increases.push_back(curr_profile[j]);
+                            prev_max = curr_profile[j];
+                        }
+                    }
+                    ASSERT((right_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
+                    num_right_inc = right_increases.size();
 
-                // EXPERIMENTAL: Added for leave-one out experiment
-                // if (doc_num == 0) 
-                //     leaveout_fd << prof_val << " ";
+                    if (is_start) {
+                        if (fwrite(&curr_ch, 1, 1, sdap_tax) != 1)
+                            FATAL_ERROR("issue occurred while writing char to *taxcomp.sdap file");
+                        for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
+                            write_to_taxcomp_dap(sdap_tax, left_increases, right_increases, i);
+                        append_overflow_pointer(sdap_tax, tax_sdap_overflow_ptr, num_left_inc, num_right_inc);
+                        if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                            tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, left_increases, tax_sdap_overflow_ptr);
+                            tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, right_increases, tax_sdap_overflow_ptr);
+                        }
+                    }
+                    if (is_end) {
+                        if (fwrite(&curr_ch, 1, 1, edap_tax) != 1)
+                            FATAL_ERROR("issue occurred while writing char to *taxcomp.edap file");
+                        for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
+                            write_to_taxcomp_dap(edap_tax, left_increases, right_increases, i);
+                        append_overflow_pointer(edap_tax, tax_edap_overflow_ptr, num_left_inc, num_right_inc);
+                        if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                            tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, left_increases, tax_edap_overflow_ptr);
+                            tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, right_increases, tax_edap_overflow_ptr);
+                        }
+                    }
+                }                
+                left_increases.clear();
+                right_increases.clear();
+            } else {
+                // Read the full profile
+                size_t curr_val = 0;
+                for (size_t j = 0; j < num_docs; j++) {
+                    curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                    lcp_queue_profiles.pop_front();
+                    curr_profile[j] = curr_val;
+                }
+
+                if (is_start || is_end) {
+                    // Sort documents by their LCP
+                    std::vector<size_t> idx(num_docs);
+                    std::iota(idx.begin(), idx.end(), 0);
+                    std::stable_sort(idx.begin(), idx.end(),
+                                     [&curr_profile](size_t v1, size_t v2) {return curr_profile[v1] > curr_profile[v2];});
+
+                    // Write the topk documents to the index files
+                    for (size_t j = 0; j < NUMCOLSFORTABLE; j++) {
+                        size_t curr_doc = idx[j];
+                        if (is_start && fwrite(&curr_doc, DOCWIDTH, 1, sdap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.sdap file");
+                        if (is_start && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, sdap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.sdap file");
+                        if (is_end && fwrite(&curr_doc, DOCWIDTH, 1, edap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.edap file");
+                        if (is_end && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, edap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.edap file");
+                    }
+                }
             }
-            // EXPERIMENTAL: Added for leave-one out experiment
-            // if (doc_num == 0)
-            //     leaveout_fd << "\n";
         }
     }
 
-    inline void update_lcp_queue(size_t num_to_remove, bool update_table) {
+    void update_lcp_queue(size_t num_to_remove, bool update_table) {
         /* remove the first n records from the lcp queue and update count matrix */
+
+        std::vector<size_t> curr_profile;
+        std::vector<size_t> left_increases, right_increases;
+        curr_profile.reserve(num_docs);
+        left_increases.reserve(1000);
+        right_increases.reserve(1000);
 
         for (size_t i = 0; i < num_to_remove; i++) {
             uint8_t curr_ch = lcp_queue[0].bwt_ch;
             size_t curr_doc = lcp_queue[0].doc_num;  
             bool is_start = lcp_queue[0].is_start;
             bool is_end = lcp_queue[0].is_end;
-
-            // EXPERIMENTAL: Added for leave-one out experiment
-            // size_t sa_pos = lcp_queue[0].sa_i;
-            // size_t doc_num = lcp_queue[0].doc_num;
-            // if (doc_num == 0)
-            //     leaveout_fd << sa_pos << " "; 
 
             // Update <ch, doc> count matrix
             if (update_table)
@@ -1502,39 +1550,176 @@ private:
             // Update the lcp value in the queue vector, and the queue_entry
             lcp_vals_in_queue.pop_front();
             lcp_queue.pop_front();
-            
+
             /*
-            if (is_start) {
-                std::cout << "----------------- FINAL PROFILE: ";
-                for (size_t j = 0; j < num_docs; j++)
-                    std::cout << lcp_queue_profiles[j] << " ";
-                std::cout << "\n";
-            } */
+             * Write the data-structure to disk based on the 
+             * command-line option chosen.
+             */
+            if (!use_taxcomp && !use_topk) {
+                // remove the DA profile, and print if it's a boundary.
+                // The format for each entry is print out the character of this run
+                // followed by all the DA entries in DOCWIDTH bytes.
+                if (is_start && fwrite(&curr_ch, 1, 1, sdap_file) != 1)
+                    FATAL_ERROR("issue occurred while writing to *.sdap file");
+                if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
+                    FATAL_ERROR("issue occurred while writing to *.edap file");
+                    
+                for (size_t j = 0; j < num_docs; j++) {
+                    size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                    lcp_queue_profiles.pop_front();
 
-            // remove the DA profile, and print if it's a boundary.
-            // The format for each entry is print out the character of this run
-            // followed by all the DA entries in DOCWIDTH bytes.
-            if (is_start && fwrite(&curr_ch, 1, 1, sdap_file) != 1)
-                FATAL_ERROR("issue occurred while writing to *.sdap file");
-            if (is_end && fwrite(&curr_ch, 1, 1, edap_file) != 1)
-                FATAL_ERROR("issue occurred while writing to *.edap file");
-                
-            for (size_t j = 0; j < num_docs; j++) {
-                size_t prof_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
-                lcp_queue_profiles.pop_front();
+                    if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
+                        error("SA write error 1");
+                    if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
+                        error("SA write error 1");
+                }
+            } else if (use_taxcomp) {
+                size_t curr_val = 0, prev_max = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                left_increases.push_back(0);
+                left_increases.push_back(prev_max);
 
-                if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
-                    error("SA write error 1");
-                if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
-                    error("SA write error 1");
+                // Read the full profile, and keep track of increases from left
+                for (size_t j = 0; j < num_docs; j++) {
+                    curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                    lcp_queue_profiles.pop_front();
+                    curr_profile[j] = curr_val;
+
+                    if (curr_val > prev_max) {
+                        left_increases.push_back(j);
+                        left_increases.push_back(curr_val);
+                        prev_max = curr_val;
+                    }
+                }
+                ASSERT((left_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
+                size_t num_left_inc = left_increases.size();
+                size_t num_right_inc = 0;
                 
-                // EXPERIMENTAL: Added for leave-one out experiment
-                // if (doc_num == 0) 
-                //     leaveout_fd << prof_val << " ";
+                if (is_start || is_end) {
+                    // Read the full profile, and keep track of increases from right
+                    curr_val = 0; prev_max = curr_profile[num_docs-1];
+                    right_increases.push_back(num_docs-1);
+                    right_increases.push_back(prev_max);
+
+                    for (int j = num_docs-1; j >= 0; j--) {
+                        if (curr_profile[j] > prev_max) {
+                            right_increases.push_back(j);
+                            right_increases.push_back(curr_profile[j]);
+                            prev_max = curr_profile[j];
+                        }
+                    }
+                    ASSERT((right_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
+                    num_right_inc = right_increases.size();
+
+                    if (is_start) {
+                        if (fwrite(&curr_ch, 1, 1, sdap_tax) != 1)
+                            FATAL_ERROR("issue occurred while writing char to *taxcomp.sdap file");
+                        for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
+                            write_to_taxcomp_dap(sdap_tax, left_increases, right_increases, i);
+                        append_overflow_pointer(sdap_tax, tax_sdap_overflow_ptr, num_left_inc, num_right_inc);
+                        if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                            tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, left_increases, tax_sdap_overflow_ptr);
+                            tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, right_increases, tax_sdap_overflow_ptr);
+                        }
+                    }
+                    if (is_end) {
+                        if (fwrite(&curr_ch, 1, 1, edap_tax) != 1)
+                            FATAL_ERROR("issue occurred while writing char to *taxcomp.edap file");
+                        for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
+                            write_to_taxcomp_dap(edap_tax, left_increases, right_increases, i);
+                        append_overflow_pointer(edap_tax, tax_edap_overflow_ptr, num_left_inc, num_right_inc);
+                        if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                            tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, left_increases, tax_edap_overflow_ptr);
+                            tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, right_increases, tax_edap_overflow_ptr);
+                        }
+                    }
+                }            
+                left_increases.clear();
+                right_increases.clear();
+            } else {
+                // Read the full profile
+                size_t curr_val = 0;
+                for (size_t j = 0; j < num_docs; j++) {
+                    curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                    lcp_queue_profiles.pop_front();
+                    curr_profile[j] = curr_val;
+                }
+
+                if (is_start || is_end) {
+                    // Sort documents by their LCP
+                    std::vector<size_t> idx(num_docs);
+                    std::iota(idx.begin(), idx.end(), 0);
+                    std::stable_sort(idx.begin(), idx.end(),
+                                     [&curr_profile](size_t v1, size_t v2) {return curr_profile[v1] > curr_profile[v2];});
+
+                    // Write the topk documents to the index files
+                    for (size_t j = 0; j < NUMCOLSFORTABLE; j++) {
+                        size_t curr_doc = idx[j];
+                        if (is_start && fwrite(&curr_doc, DOCWIDTH, 1, sdap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.sdap file");
+                        if (is_start && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, sdap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.sdap file");
+                        if (is_end && fwrite(&curr_doc, DOCWIDTH, 1, edap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.edap file");
+                        if (is_end && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, edap_topk) != 1)
+                            FATAL_ERROR("error occurred while writing to *topk.edap file");
+                    }
+                }
             }
-            // EXPERIMENTAL: Added for leave-one out experiment
-            // if (doc_num == 0)
-            //     leaveout_fd << "\n";
+            
+        }
+    }
+
+    size_t write_remaining_pairs_to_overflow(FILE* outfile, std::vector<size_t> inc_pairs, size_t curr_ptr_pos) {
+        // Check if we need to write anything in the first place
+        if (inc_pairs.size()/2 > NUMCOLSFORTABLE) {
+            size_t num_to_write = inc_pairs.size()/2 - NUMCOLSFORTABLE;
+            ASSERT((num_to_write < 256), "we need more than 255 values to compress the profiles.");
+
+            if (fwrite(&num_to_write, 1, 1, outfile) != 1)
+                FATAL_ERROR("issue occurred while writing to overflow table.");
+            curr_ptr_pos += 1;
+
+            for (size_t j = NUMCOLSFORTABLE; j < inc_pairs.size()/2; j++) {
+                bool success = (fwrite(&inc_pairs[j*2], DOCWIDTH, 1, outfile) == 1);
+                success &= fwrite(&inc_pairs[j*2+1], DOCWIDTH, 1, outfile) == 1;
+                if (!success)
+                    FATAL_ERROR("issue occurred while writing the left data to overflow table.");
+                curr_ptr_pos += (DOCWIDTH * 2);
+            }
+        } else {
+            // Do not write anything if both left and right are already
+            // included in the table...
+            // size_t val = 0;
+            // if (fwrite(&val, 1, 1, outfile) != 1)
+            //     FATAL_ERROR("issue occurred while writing to overflow table.");
+            // curr_ptr_pos += 1;
+        }
+        return curr_ptr_pos;
+    }
+
+    void write_to_taxcomp_dap(FILE* outfile, std::vector<size_t> left_inc, std::vector<size_t> right_inc, size_t col_num) {
+        size_t index = col_num * 2;
+        size_t left_pos = (col_num < left_inc.size()/2) ? left_inc[index]: MAXLCPVALUE;
+        size_t left_lcp = (col_num < left_inc.size()/2) ? left_inc[index+1]: 0;
+        size_t right_pos = (col_num < right_inc.size()/2) ? right_inc[index]: MAXLCPVALUE;
+        size_t right_lcp = (col_num < right_inc.size()/2) ? right_inc[index+1]: 0;
+
+        bool success = fwrite(&left_pos, DOCWIDTH, 1, outfile) == 1;
+        success &= fwrite(&left_lcp, DOCWIDTH, 1, outfile) == 1;
+        success &= fwrite(&right_pos, DOCWIDTH, 1, outfile) == 1;
+        success &= fwrite(&right_lcp, DOCWIDTH, 1, outfile) == 1;
+        if (!success)
+            FATAL_ERROR("issue occurred during the writing to the *.taxcomp.dap file");
+    }
+
+    void append_overflow_pointer(FILE* outfile, size_t curr_pos, size_t num_left_inc, size_t num_right_inc) {
+        if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+            if (fwrite(&curr_pos, sizeof(size_t), 1, outfile) != 1)
+                FATAL_ERROR("issue occurred when writing the overflow pointer.");
+        } else {
+            size_t overflow_pos = 0;
+            if (fwrite(&overflow_pos, sizeof(size_t), 1, outfile) != 1)
+                FATAL_ERROR("issue occurred when writing the overflow pointer.");
         }
     }
 
@@ -1687,10 +1872,6 @@ private:
         length += length_;
 
     }
-
-
-
-
 };
 
 #endif /* end of include guard: _LCP_PFP_HH */

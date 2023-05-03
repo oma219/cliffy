@@ -15,9 +15,9 @@
 #include <vector>
 
 /* Useful MACROs */
-#define FATAL_ERROR(...) do {std::fprintf(stderr, "\nError: "); std::fprintf(stderr, __VA_ARGS__);\
+#define FATAL_ERROR(...) do {std::fprintf(stderr, "\n\033[31mError: \033[m"); std::fprintf(stderr, __VA_ARGS__);\
                               std::fprintf(stderr, "\n\n"); std::exit(1);} while(0)
-#define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\nAssertion Failed: %s\n", msg); \
+#define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\n\n\033[31mAssertion Failed:\033[m %s\n\n", msg); \
                                                    std::exit(1);}} while(0)
 #define STATUS_LOG(x, ...) do {std::fprintf(stderr, "[%s] ", x); std::fprintf(stderr, __VA_ARGS__ ); \
                                std::fprintf(stderr, " ... ");} while(0)
@@ -30,9 +30,11 @@
 // Defintions
 #define PFPDOC_VERSION "1.0.6"
 
-#define DOCWIDTH 2 // 5
+#define DOCWIDTH 2
 #define MAXQUEUELENGTH 1000000
 #define MAXLCPVALUE 65535 // 2^16 - 1
+#define MAXDOCS 65535
+//#define NUMCOLSFORTABLE 7
 
 #define AVX2_PRESENT __AVX2__ 
 #define AVX512BW_PRESENT __AVX512BW__ 
@@ -90,6 +92,9 @@ struct PFPDocBuildOptions {
         size_t hash_mod = 100;
         size_t threads = 0;
         bool is_fasta = true;
+        bool use_taxcomp = false;
+        bool use_topk = false;
+        size_t numcolsintable = 7;
 
         void validate() {
             /* checks the arguments and make sure they are valid */
@@ -100,7 +105,10 @@ struct PFPDocBuildOptions {
 
             std::filesystem::path p (output_prefix);
             if (!is_dir(p.parent_path().string()))
-                FATAL_ERROR("Output path prefix is not in a valid directory.");                 
+                FATAL_ERROR("Output path prefix is not in a valid directory."); 
+
+            if (use_taxcomp && use_topk)
+                FATAL_ERROR("taxonomic and top-k compression cannot be used together.");               
         }
 };
 
