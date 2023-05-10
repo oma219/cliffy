@@ -263,7 +263,7 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"taxcomp",   no_argument, NULL,  't'},
         {"num-col",   required_argument, NULL,  'k'},
         {"top-k",   no_argument, NULL,  'p'},
-        {"doc-to-extract", required_argument, NULL, 'e'},
+        {"print-doc", required_argument, NULL, 'e'},
         {"no-heuristic", no_argument, NULL, 'n'},
         {0, 0, 0,  0}
     };
