@@ -53,6 +53,12 @@ int build_main(int argc, char** argv) {
         && ref_build.num_docs < build_opts.numcolsintable)
         FATAL_ERROR("the k provided is larger than the number of documents.");
 
+    // Check and make sure the document to extract is a valid id
+    if (build_opts.doc_to_extract > ref_build.num_docs) {
+        FATAL_ERROR("Document #%d was requested to be extracted,"
+                    " but there are only %d documents", build_opts.doc_to_extract, ref_build.num_docs);
+    }
+
     // Determine the paths to the BigBWT executables
     HelperPrograms helper_bins;
     if (!std::getenv("PFPDOC_BUILD_DIR")) {FATAL_ERROR("Need to set PFPDOC_BUILD_DIR environment variable.");}
@@ -85,7 +91,8 @@ int build_main(int argc, char** argv) {
     STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
     start = std::chrono::system_clock::now();
 
-    pfp_lcp lcp(build_opts.use_taxcomp, build_opts.use_topk, build_opts.numcolsintable, pf, build_opts.output_ref, &ref_build);
+    pfp_lcp lcp(build_opts.use_heuristics, build_opts.doc_to_extract, build_opts.use_taxcomp, build_opts.use_topk, 
+                build_opts.numcolsintable, pf, build_opts.output_ref, &ref_build);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
     // Print stats before closing out
@@ -241,7 +248,8 @@ void print_build_status_info(PFPDocBuildOptions* opts) {
     std::fprintf(stderr, "\tInput file-list: %s\n", opts->input_list.data());
     std::fprintf(stderr, "\tOutput ref path: %s\n", opts->output_ref.data());
     std::fprintf(stderr, "\tPFP window size: %d\n", opts->pfp_w);
-    std::fprintf(stderr, "\tInclude rev-comp?: %d\n\n", opts->use_rcomp);
+    std::fprintf(stderr, "\tInclude rev-comp?: %d\n", opts->use_rcomp);
+    std::fprintf(stderr, "\tUse heuristics?: %d\n\n", opts->use_heuristics);
 }
 
 void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
@@ -255,12 +263,14 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"taxcomp",   no_argument, NULL,  't'},
         {"num-col",   required_argument, NULL,  'k'},
         {"top-k",   no_argument, NULL,  'p'},
+        {"doc-to-extract", required_argument, NULL, 'e'},
+        {"no-heuristic", no_argument, NULL, 'n'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:p", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:n", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_build_usage(); std::exit(1);
             case 'f': opts->input_list.assign(optarg); break;
@@ -270,6 +280,8 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
             case 't': opts->use_taxcomp = true; break;
             case 'p': opts->use_topk = true; break;
             case 'k': opts->numcolsintable = std::max(std::atoi(optarg), 2); break;
+            case 'e': opts->doc_to_extract = std::atoi(optarg); break;
+            case 'n': opts->use_heuristics = false; break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
     }
@@ -310,16 +322,19 @@ int pfpdoc_build_usage() {
     std::fprintf(stderr, "Usage: pfp_doc build [options]\n\n");
 
     std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "\t%-25sprints this usage message\n", "-h, --help");
-    std::fprintf(stderr, "\t%-15s%-10spath to a file-list of genomes to use\n", "-f, --filelist", "[FILE]");
-    std::fprintf(stderr, "\t%-15s%-10soutput prefix path if using -f option\n", "-o, --output", "[arg]");
-    std::fprintf(stderr, "\t%-25sinclude the reverse-complement of sequence (default: false)\n\n", "-r, --revcomp");
+    std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
+    std::fprintf(stderr, "\t%-18s%-10spath to a file-list of genomes to use\n", "-f, --filelist", "[FILE]");
+    std::fprintf(stderr, "\t%-18s%-10soutput prefix path if using -f option\n", "-o, --output", "[arg]");
+    std::fprintf(stderr, "\t%-28sinclude the reverse-complement of sequence (default: false)\n\n", "-r, --revcomp");
 
-    std::fprintf(stderr, "\t%-25suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
-    std::fprintf(stderr, "\t%-25suse top-k compression of the document array (default: false)\n", "-p, --top-k");
-    std::fprintf(stderr, "\t%-25snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col");
+    std::fprintf(stderr, "\t%-28suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
+    std::fprintf(stderr, "\t%-28suse top-k compression of the document array (default: false)\n", "-p, --top-k");
+    std::fprintf(stderr, "\t%-28snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col");
+    
+    std::fprintf(stderr, "\t%-18s%-10sdocument number whose profiles to extract\n", "-e, --print-doc", "[INT]");
+    std::fprintf(stderr, "\t%-28sturn off any heuristics used to build profiles\n\n", "-n, --no-heuristic");
 
-    std::fprintf(stderr, "\t%-15s%-10swindow size used for pfp (default: 10)\n\n", "-w, --window", "[INT]");
+    std::fprintf(stderr, "\t%-18s%-10swindow size used for pfp (default: 10)\n\n", "-w, --window", "[INT]");
 
     return 0;
 }

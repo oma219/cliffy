@@ -138,8 +138,9 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
     // Add 1 to last document for $ and find total length
     size_t total_input_length = 0;
     seq_lengths[seq_lengths.size()-1] += 1; // for $
-    for (auto length: seq_lengths)
+    for (auto length: seq_lengths) {
         total_input_length += length;
+    }
     
     this->total_length = total_input_length;
     this->num_docs = seq_lengths.size();

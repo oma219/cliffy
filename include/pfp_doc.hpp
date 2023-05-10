@@ -28,7 +28,7 @@
                                   std::fprintf(stderr, "\n");} while (0)
 
 // Defintions
-#define PFPDOC_VERSION "1.0.7"
+#define PFPDOC_VERSION "1.0.8"
 
 #define DOCWIDTH 2
 #define MAXQUEUELENGTH 1000000
@@ -94,6 +94,8 @@ struct PFPDocBuildOptions {
         bool use_taxcomp = false;
         bool use_topk = false;
         size_t numcolsintable = 7;
+        size_t doc_to_extract = 0;
+        size_t use_heuristics = true;
 
         void validate() {
             /* checks the arguments and make sure they are valid */
@@ -107,7 +109,10 @@ struct PFPDocBuildOptions {
                 FATAL_ERROR("Output path prefix is not in a valid directory."); 
 
             if (use_taxcomp && use_topk)
-                FATAL_ERROR("taxonomic and top-k compression cannot be used together.");               
+                FATAL_ERROR("taxonomic and top-k compression cannot be used together.");   
+
+            if (doc_to_extract > 0 && (use_taxcomp || use_topk)) 
+                FATAL_ERROR("cannot extract document array when using compression.");       
         }
 };
 

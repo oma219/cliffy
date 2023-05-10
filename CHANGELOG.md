@@ -1,6 +1,11 @@
 # PFP-Doc Change Log
 
-## v1.0.7 - latest
+## v1.0.8 - latest
+- Added the -e, -n options to main branch in order to be able
+  to build out the full doc profiles along with its suffix array
+  position.
+  
+## v1.0.7
 - Updated compilation to avoid specific architecture flags
 
 ## v1.0.6
