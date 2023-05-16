@@ -1,4 +1,4 @@
-# **Document Array Profiles**: document listing in compressed space
+# **Document Array Profiles**: document listing in compressed space [![DOI](https://zenodo.org/badge/535600494.svg)](https://zenodo.org/badge/latestdoi/535600494)
 
 This code is based on the [pfp-thresholds](https://github.com/maxrossi91/pfp-thresholds) repository written by [Massimiliano Rossi](https://github.com/maxrossi91). 
 This repository **builds a novel data-structure called *document array profiles* that allows users to list all the documents/classes that
