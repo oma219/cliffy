@@ -17,6 +17,8 @@ cd docprofiles
 mkdir build 
 cd build && cmake ..
 make install
+
+export PFPDOC_BUILD_DIR=$(pwd)
 ```
 
 ## Getting started
