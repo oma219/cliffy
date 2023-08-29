@@ -86,7 +86,8 @@ public:
                 use_topk(topk)
                 // heads(1, 0)
     {       
-        // Opening output files
+        // opening output files for data-structures like 
+        // LCP, SA, BWT
         std::string outfile = filename + std::string(".lcp");
         if ((lcp_file = fopen(outfile.c_str(), "w")) == nullptr)
             error("open() file " + outfile + " failed");
@@ -113,7 +114,8 @@ public:
                 error("open() file " + outfile + " failed");
         }
 
-
+        // opens files related to document array profiles, it 
+        // creates different files based on compression strategy used
         if (taxcomp) {
             outfile = filename + std::string(".taxcomp.sdap");
             if ((sdap_tax = fopen(outfile.c_str(), "w")) == nullptr) 
@@ -169,20 +171,12 @@ public:
         std::vector<size_t> curr_da_profile (ref_build->num_docs, 0);
         std::vector<bool> docs_to_collect (ref_build->num_docs, false);
 
-        // DEBUG: variables defined for debugging
-        std::vector<double> times = {0, 0, 0, 0, 0, 0};
-        std::vector<size_t> method_wins = {0, 0, 0};
-        double avg_queue_length = 0.0;
-        size_t total_pos_traversed = 0;
-        auto start = std::chrono::system_clock::now();
-        auto sec = std::chrono::duration<double>(std::chrono::system_clock::now() - start).count();
-
         // DEBUG: output file for storing variables
         // std::ofstream debugging_fd (filename + ".output_data.txt");
         if (doc_to_print_out > 0)
             leaveout_fd.open(filename + ".extract_dap.txt");
 
-        // Create a backup predecessor max lcp table, and re-initialize with max_lcp
+        // create a backup predecessor max lcp table, and re-initialize with max_lcp
         size_t num_blocks_of_32 = num_docs/32;
         num_blocks_of_32++;
 
@@ -201,7 +195,8 @@ public:
         inc(curr);
         while (curr.i < pf.dict.saD.size())
         {
-            // Make sure current suffix is a valid proper phrase suffix (at least w characters but not whole phrase)
+            // Make sure current suffix is a valid proper phrase suffix 
+            // (at least w characters but not whole phrase)
             if(is_valid(curr)){
 
                 // Compute the next character of the BWT of T
@@ -281,7 +276,7 @@ public:
                     size_t doc_of_LF_i = ref_build->doc_ends_rank(pos_of_LF_i);
 
                     // DEBUG: creates the debugging file
-                    //debugging_fd << pos << std::setw(20) << (curr_run_num-1) << std::setw(20) << curr_bwt_ch << std::setw(20) << sa_i << std::setw(20) << doc_of_LF_i << std::setw(20) << lcp_i << std::endl;
+                    // debugging_fd << pos << std::setw(20) << (curr_run_num-1) << std::setw(20) << curr_bwt_ch << std::setw(20) << sa_i << std::setw(20) << doc_of_LF_i << std::setw(20) << lcp_i << std::endl;
 
                     // Add the current suffix data to LCP queue 
                     queue_entry_t curr_entry = {curr_run_num-1, curr_bwt_ch, doc_of_LF_i, is_start, is_end, lcp_i, pos_of_LF_i};
@@ -315,7 +310,7 @@ public:
 
                     // Update the predecessor max lcp structure with the current lcp
                     // so basiscally iterate through all values and take the min
-                    // IMPORTANT: this is the old code before SIMDifying.
+                    // IMPORTANT NOTE: this is the old code before SIMDifying.
                     
                     // for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                     //     for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
@@ -464,9 +459,6 @@ public:
                         
                         lcp_queue_profiles[start_pos + doc_of_LF_i] = std::max(curr_max_lcp, min_lcp+1);
                     }
-                    avg_queue_length += lcp_queue.size();
-                    total_pos_traversed += queue_pos_for_traversal.size();
-
                     if (lcp_queue.size() >= MAXQUEUELENGTH)
                         FATAL_ERROR("queue length during construction grew too large");
                     
@@ -503,7 +495,7 @@ public:
 
                     if (use_heuristics) {
                         // Method #1 - Heuristic
-                        if (lcp_i <= 6) {
+                        if (lcp_i <= 7) {
                             heuristic_used = true;
                             records_to_remove_heuristic = lcp_queue.size()-1;
                         // Method #2 - Heuristic 
@@ -527,7 +519,6 @@ public:
                         } 
                     }
                     
-
                     /* 
                      * If using heuristics did not yield flushing the queue, let's
                      * try to see if using a non-heuristic method will do better.
@@ -685,9 +676,8 @@ private:
 
     std::ofstream leaveout_fd;
 
-    void print_doc_profiles() {
+    void print_doc_profiles(){
         /* Go through the leftover lcp queue, and print all the profiles for run boundaries */
-        
         std::vector<size_t> curr_profile;
         std::vector<size_t> left_increases, right_increases;
         curr_profile.reserve(num_docs);
@@ -798,7 +788,7 @@ private:
                 }                
                 left_increases.clear();
                 right_increases.clear();
-            } else {
+            } else /* top-k */ {
                 // Read the full profile
                 size_t curr_val = 0;
                 for (size_t j = 0; j < num_docs; j++) {
@@ -831,7 +821,7 @@ private:
         }
     }
 
-    void update_lcp_queue(size_t num_to_remove, bool update_table) {
+    void update_lcp_queue(size_t num_to_remove, bool update_table){
         /* remove the first n records from the lcp queue and update count matrix */
 
         std::vector<size_t> curr_profile;
@@ -905,6 +895,7 @@ private:
                     curr_profile[j] = curr_val;
 
                     if (curr_val > prev_max) {
+                        // Push the index, followed by the lcp value
                         left_increases.push_back(j);
                         left_increases.push_back(curr_val);
                         prev_max = curr_val;
@@ -931,22 +922,36 @@ private:
                     num_right_inc = right_increases.size();
 
                     if (is_start) {
+                        // Step 1: Write the BWT char
                         if (fwrite(&curr_ch, 1, 1, sdap_tax) != 1)
                             FATAL_ERROR("issue occurred while writing char to *taxcomp.sdap file");
+                        
+                        // Step 2: Writes the ordered pairs to the file
                         for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
                             write_to_taxcomp_dap(sdap_tax, left_increases, right_increases, i);
+                        
+                        // Step 3: Writes the overflow pointer to a file in order to be able to go to overflow file
                         append_overflow_pointer(sdap_tax, tax_sdap_overflow_ptr, num_left_inc, num_right_inc);
+
+                        // Step 4: Write any leftover pairs to overflow table
                         if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
                             tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, left_increases, tax_sdap_overflow_ptr);
                             tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, right_increases, tax_sdap_overflow_ptr);
                         }
                     }
                     if (is_end) {
+                        // Step 1: Write the BWT char
                         if (fwrite(&curr_ch, 1, 1, edap_tax) != 1)
                             FATAL_ERROR("issue occurred while writing char to *taxcomp.edap file");
+                        
+                        // Step 2: Writes the ordered pairs to the file
                         for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
                             write_to_taxcomp_dap(edap_tax, left_increases, right_increases, i);
+                        
+                        // Step 3: Writes the overflow pointer to a file in order to be able to go to overflow file
                         append_overflow_pointer(edap_tax, tax_edap_overflow_ptr, num_left_inc, num_right_inc);
+
+                        // Step 4: Write any leftover pairs to overflow table
                         if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
                             tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, left_increases, tax_edap_overflow_ptr);
                             tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, right_increases, tax_edap_overflow_ptr);
@@ -955,7 +960,8 @@ private:
                 }            
                 left_increases.clear();
                 right_increases.clear();
-            } else {
+            } else /* top-k */ {
+
                 // Read the full profile
                 size_t curr_val = 0;
                 for (size_t j = 0; j < num_docs; j++) {
@@ -989,11 +995,11 @@ private:
         }
     }
 
-    size_t write_remaining_pairs_to_overflow(FILE* outfile, std::vector<size_t> inc_pairs, size_t curr_ptr_pos) {
+    size_t write_remaining_pairs_to_overflow(FILE* outfile, std::vector<size_t> inc_pairs, size_t curr_ptr_pos){
         // Check if we need to write anything in the first place
         if (inc_pairs.size()/2 > NUMCOLSFORTABLE) {
             size_t num_to_write = inc_pairs.size()/2 - NUMCOLSFORTABLE;
-            ASSERT((num_to_write < 256), "we need more than 255 values to compress the profiles.");
+            ASSERT((num_to_write < 256), "we need less than 255 values to compress the profiles.");
 
             if (fwrite(&num_to_write, 1, 1, outfile) != 1)
                 FATAL_ERROR("issue occurred while writing to overflow table.");
@@ -1009,15 +1015,11 @@ private:
         } else {
             // Do not write anything if both left and right are already
             // included in the table...
-            // size_t val = 0;
-            // if (fwrite(&val, 1, 1, outfile) != 1)
-            //     FATAL_ERROR("issue occurred while writing to overflow table.");
-            // curr_ptr_pos += 1;
         }
         return curr_ptr_pos;
     }
 
-    void write_to_taxcomp_dap(FILE* outfile, std::vector<size_t> left_inc, std::vector<size_t> right_inc, size_t col_num) {
+    void write_to_taxcomp_dap(FILE* outfile, std::vector<size_t> left_inc, std::vector<size_t> right_inc, size_t col_num){
         size_t index = col_num * 2;
         size_t left_pos = (col_num < left_inc.size()/2) ? left_inc[index]: MAXLCPVALUE;
         size_t left_lcp = (col_num < left_inc.size()/2) ? left_inc[index+1]: 0;
@@ -1032,7 +1034,7 @@ private:
             FATAL_ERROR("issue occurred during the writing to the *.taxcomp.dap file");
     }
 
-    void append_overflow_pointer(FILE* outfile, size_t curr_pos, size_t num_left_inc, size_t num_right_inc) {
+    void append_overflow_pointer(FILE* outfile, size_t curr_pos, size_t num_left_inc, size_t num_right_inc){
         if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
             if (fwrite(&curr_pos, sizeof(size_t), 1, outfile) != 1)
                 FATAL_ERROR("issue occurred when writing the overflow pointer.");
@@ -1043,8 +1045,7 @@ private:
         }
     }
 
-    inline bool inc(phrase_suffix_t& s)
-    {
+    inline bool inc(phrase_suffix_t& s){
         s.i++;
         if (s.i >= pf.dict.saD.size())
             return false;
@@ -1058,8 +1059,7 @@ private:
         return true;
     }
 
-    inline bool is_valid(phrase_suffix_t& s)
-    {
+    inline bool is_valid(phrase_suffix_t& s){
         // avoid the extra w # at the beginning of the text
         if (s.sn < pf.w)
             return false;
@@ -1070,8 +1070,7 @@ private:
         return true;
     }
     
-    inline int_t min_s_lcp_T(size_t left, size_t right)
-    {
+    inline int_t min_s_lcp_T(size_t left, size_t right){
         // assume left < right
         if (left > right)
             std::swap(left, right);
@@ -1081,8 +1080,7 @@ private:
         return (pf.s_lcp_T[pf.rmq_s_lcp_T(left + 1, right)] - pf.w);
     }
 
-    inline int_t compute_lcp_suffix(phrase_suffix_t& curr, phrase_suffix_t& prev)
-    {
+    inline int_t compute_lcp_suffix(phrase_suffix_t& curr, phrase_suffix_t& prev){
         int_t lcp_suffix = 0;
 
         if (j > 0)
@@ -1109,34 +1107,29 @@ private:
         return lcp_suffix;
     }
 
-    inline void print_lcp(int_t val, size_t pos)
-    {
+    inline void print_lcp(int_t val, size_t pos){
         size_t tmp_val = val;
         if (fwrite(&tmp_val, THRBYTES, 1, lcp_file) != 1)
             error("LCP write error 1");
     }
 
     // We can put here the check if we want to store the LCP or stream it out
-    inline void new_min_s(int_t val, size_t pos)
-    {
+    inline void new_min_s(int_t val, size_t pos){
         min_s.push_back(val);
         pos_s.push_back(j);
     }
 
-    inline void update_ssa(phrase_suffix_t &curr, size_t pos)
-    {
+    inline void update_ssa(phrase_suffix_t &curr, size_t pos){
         ssa = (pf.pos_T[pos] - curr.suffix_length) % (pf.n - pf.w + 1ULL); // + pf.w;
         assert(ssa < (pf.n - pf.w + 1ULL));
     }
 
-    inline void update_esa(phrase_suffix_t &curr, size_t pos)
-    {
+    inline void update_esa(phrase_suffix_t &curr, size_t pos){
         esa = (pf.pos_T[pos] - curr.suffix_length) % (pf.n - pf.w + 1ULL); // + pf.w;
         assert(esa < (pf.n - pf.w + 1ULL));
     }
 
-    inline void print_sa()
-    {
+    inline void print_sa(){
         if (j < (pf.n - pf.w + 1ULL))
         {
             size_t pos = j;
@@ -1156,8 +1149,7 @@ private:
         }
     }
 
-    inline void print_bwt()
-    {   
+    inline void print_bwt(){   
         if (length > 0)
         {
             if (rle) {
@@ -1178,8 +1170,7 @@ private:
         }
     }
 
-    inline void update_bwt(uint8_t next_char, size_t length_)
-    {
+    inline void update_bwt(uint8_t next_char, size_t length_){
         if (head != next_char)
         {
             print_sa();
