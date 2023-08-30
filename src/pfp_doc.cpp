@@ -350,6 +350,8 @@ int pfpdoc_run_usage() {
     std::fprintf(stderr, "\t%-10spath to the pattern file\n", "-p [arg]");
     std::fprintf(stderr, "\t%-10swrite data-structures to disk\n", "-s");
     std::fprintf(stderr, "\t%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l [arg]");
+    // std::fprintf(stderr, "\t%-10sload document array that is 'taxonomic' compressed (default: false)\n", "-t, --taxcomp");
+    // std::fprintf(stderr, "\t%-10sload document array that is 'top-k' compressed (default: false)\n\n", "-p, --top-k");
     
     return 0;
 }

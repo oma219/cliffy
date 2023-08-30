@@ -39,16 +39,20 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
     typedef size_t size_type;
 
-    doc_queries(std::string filename, std::string output_path="", size_t num_profiles=0, bool rle = true): 
-            ri::r_index<sparse_bv_type, rle_string_t>(),
-            start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
-            end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
+    doc_queries(std::string filename,
+                std::string output_path="", 
+                size_t num_profiles=0, 
+                bool rle = true): 
+                ri::r_index<sparse_bv_type, rle_string_t>(),
+                start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
+                end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
     {
         std::string bwt_fname = filename + ".bwt";
 
         STATUS_LOG("build_profiles", "loading the bwt of the input text");
         auto start = std::chrono::system_clock::now();
 
+        // loads the BWT data-structure
         if(rle)
         {
             std::string bwt_heads_fname = bwt_fname + ".heads";
@@ -56,6 +60,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             std::string bwt_len_fname = bwt_fname + ".len";
             std::ifstream ifs_len(bwt_len_fname);
             this->bwt = rle_string_t(ifs_heads, ifs_len);
+            //std::cout << "here after constructor\n";
 
             ifs_heads.seekg(0);
             ifs_len.seekg(0);
@@ -81,14 +86,13 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         ri::ulint n = this->bwt.size();
         size_t log_r = bitsize(uint64_t(this->r));
         size_t log_n = bitsize(uint64_t(this->bwt.size()));
-
         FORCE_LOG("build_profiles", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
 
 
         // for (size_t i = 0; i < n; i++)
         //     std::cout << "i = " << i << "   bwt[i] = " << this->bwt[i] << std::endl;
         
-        // Determine the number of documents and verify the that file
+        // determine the number of documents and verify the that file
         // sizes are correct.
         std::string tmp_filename = filename + ".sdap";
 
@@ -109,6 +113,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         fclose(fd);
 
         FORCE_LOG("read_profiles", "number of documents: d = %ld" , num_docs);
+
+        // std::exit(1);
         
         // Load the profiles for starts and ends
         STATUS_LOG("build_profiles", "loading the document array profiles");
@@ -210,7 +216,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         fclose(fd);
     }
 
-    void query_profiles(std::string pattern_file) {
+    void query_profiles(std::string pattern_file){
         /* Takes in a file of reads, and lists all the documents containing the read */
     
         // Open output/input files
@@ -421,8 +427,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         }
     }
 
-    vector<ulint> build_F_(std::ifstream &heads, std::ifstream &lengths)
-    {
+    vector<ulint> build_F_(std::ifstream &heads, std::ifstream &lengths){
         heads.clear();
         heads.seekg(0);
         lengths.clear();
@@ -452,8 +457,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         return this->F;
     }
 
-    ulint LF(ri::ulint i, ri::uchar c)
-    {
+    ulint LF(ri::ulint i, ri::uchar c){
         // //if character does not appear in the text, return empty pair
         // if ((c == 255 and this->F[c] == this->bwt_size()) || this->F[c] >= this->F[c + 1])
         //     return {1, 0};
