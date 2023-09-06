@@ -188,9 +188,6 @@ public:
         for (size_t i = 0; i < 256; i++)
             for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
                 predecessor_max_lcp_2[i][j] = max_lcp_init;
-        // for (size_t i = 0; i < 256; i++)
-        //     for (size_t j = 0; j < num_docs; j++)
-        //         predecessor_max_lcp[i][j] = max_lcp_init;
 
         inc(curr);
         while (curr.i < pf.dict.saD.size())
@@ -744,7 +741,7 @@ private:
                     }
                 }
                 ASSERT((left_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
-                size_t num_left_inc = left_increases.size();
+                size_t num_left_inc = left_increases.size() / 2;
                 size_t num_right_inc = 0;
                 
                 if (is_start || is_end) {
@@ -761,29 +758,62 @@ private:
                         }
                     }
                     ASSERT((right_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
-                    num_right_inc = right_increases.size();
+                    num_right_inc = right_increases.size() / 2;
+
+                    size_t old_sdap_overflow_pos = tax_sdap_overflow_ptr;
+                    size_t old_edap_overflow_pos = tax_edap_overflow_ptr;
+                    size_t num_of_pairs = (num_left_inc > NUMCOLSFORTABLE) ? (num_left_inc-NUMCOLSFORTABLE) : 0;
+                    num_of_pairs += (num_right_inc > NUMCOLSFORTABLE) ? (num_right_inc-NUMCOLSFORTABLE) : 0;
 
                     if (is_start) {
+                        // Step 1: Write the BWT char
                         if (fwrite(&curr_ch, 1, 1, sdap_tax) != 1)
                             FATAL_ERROR("issue occurred while writing char to *taxcomp.sdap file");
+                        
+                        // Step 2: Writes the ordered pairs to the file
                         for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
                             write_to_taxcomp_dap(sdap_tax, left_increases, right_increases, i);
+                        
+                        // Step 3: Writes the overflow pointer to a file in order to be able to go to overflow file
                         append_overflow_pointer(sdap_tax, tax_sdap_overflow_ptr, num_left_inc, num_right_inc);
+                        
+                        // Step 4: Write any leftover pairs to overflow table
                         if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
                             tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, left_increases, tax_sdap_overflow_ptr);
                             tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, right_increases, tax_sdap_overflow_ptr);
                         }
+
+                        // Check that overflow ptr is being incremented as expected
+                        if (num_of_pairs > 0)
+                            assert (tax_sdap_overflow_ptr == 
+                                   (old_sdap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                        else
+                            assert(tax_sdap_overflow_ptr == old_sdap_overflow_pos);
                     }
                     if (is_end) {
+                        // Step 1: Write the BWT char
                         if (fwrite(&curr_ch, 1, 1, edap_tax) != 1)
                             FATAL_ERROR("issue occurred while writing char to *taxcomp.edap file");
+
+                        // Step 2: Writes the ordered pairs to the file
                         for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
                             write_to_taxcomp_dap(edap_tax, left_increases, right_increases, i);
+                        
+                        // Step 3: Writes the overflow pointer to a file in order to be able to go to overflow file
                         append_overflow_pointer(edap_tax, tax_edap_overflow_ptr, num_left_inc, num_right_inc);
+                        
+                        // Step 4: Write any leftover pairs to overflow table
                         if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
                             tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, left_increases, tax_edap_overflow_ptr);
                             tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, right_increases, tax_edap_overflow_ptr);
                         }
+
+                        // Check that overflow ptr is being incremented as expected
+                        if (num_of_pairs > 0)
+                            assert (tax_edap_overflow_ptr == 
+                                   (old_edap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                        else
+                            assert(tax_edap_overflow_ptr == old_edap_overflow_pos);
                     }
                 }                
                 left_increases.clear();
@@ -824,9 +854,9 @@ private:
     void update_lcp_queue(size_t num_to_remove, bool update_table){
         /* remove the first n records from the lcp queue and update count matrix */
 
-        std::vector<size_t> curr_profile;
+        std::vector<size_t> curr_profile(num_docs, 0);
         std::vector<size_t> left_increases, right_increases;
-        curr_profile.reserve(num_docs);
+        //curr_profile.reserve(num_docs);
         left_increases.reserve(1000);
         right_increases.reserve(1000);
 
@@ -902,7 +932,7 @@ private:
                     }
                 }
                 ASSERT((left_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
-                size_t num_left_inc = left_increases.size();
+                size_t num_left_inc = left_increases.size() / 2;
                 size_t num_right_inc = 0;
                 
                 if (is_start || is_end) {
@@ -919,7 +949,12 @@ private:
                         }
                     }
                     ASSERT((right_increases.size() % 2 == 0), "issue occurred during the compression of profiles.");
-                    num_right_inc = right_increases.size();
+                    num_right_inc = right_increases.size() / 2;
+
+                    size_t old_sdap_overflow_pos = tax_sdap_overflow_ptr;
+                    size_t old_edap_overflow_pos = tax_edap_overflow_ptr;
+                    size_t num_of_pairs = (num_left_inc > NUMCOLSFORTABLE) ? (num_left_inc-NUMCOLSFORTABLE) : 0;
+                    num_of_pairs += (num_right_inc > NUMCOLSFORTABLE) ? (num_right_inc-NUMCOLSFORTABLE) : 0;
 
                     if (is_start) {
                         // Step 1: Write the BWT char
@@ -938,6 +973,14 @@ private:
                             tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, left_increases, tax_sdap_overflow_ptr);
                             tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, right_increases, tax_sdap_overflow_ptr);
                         }
+
+                        // Check that overflow ptr is being incremented as expected
+                        if (num_of_pairs > 0)
+                            assert (tax_sdap_overflow_ptr == 
+                                   (old_sdap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                        else
+                            assert(tax_sdap_overflow_ptr == old_sdap_overflow_pos);
+
                     }
                     if (is_end) {
                         // Step 1: Write the BWT char
@@ -956,6 +999,13 @@ private:
                             tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, left_increases, tax_edap_overflow_ptr);
                             tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, right_increases, tax_edap_overflow_ptr);
                         }
+
+                        // Check that overflow ptr is being incremented as expected
+                        if (num_of_pairs > 0)
+                            assert (tax_edap_overflow_ptr == 
+                                   (old_edap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                        else
+                            assert(tax_edap_overflow_ptr == old_edap_overflow_pos);
                     }
                 }            
                 left_increases.clear();
@@ -995,16 +1045,24 @@ private:
         }
     }
 
-    size_t write_remaining_pairs_to_overflow(FILE* outfile, std::vector<size_t> inc_pairs, size_t curr_ptr_pos){
-        // Check if we need to write anything in the first place
-        if (inc_pairs.size()/2 > NUMCOLSFORTABLE) {
-            size_t num_to_write = inc_pairs.size()/2 - NUMCOLSFORTABLE;
-            ASSERT((num_to_write < 256), "we need less than 255 values to compress the profiles.");
+    size_t write_remaining_pairs_to_overflow(FILE* outfile, std::vector<size_t>& inc_pairs, size_t curr_ptr_pos){
+        /* 
+         * Note: 
+         * This method is only called when the document array profile has an 
+         * overflow either in the left to right or right to left direction so
+         * we always write something to the overflow even if it just 1 byte saying
+         * there are no leftover pairs in one of the direction in order to guarantee
+         * we can find all the data.
+         */
+        int diff = (inc_pairs.size()/2 - NUMCOLSFORTABLE);
+        size_t num_to_write = (diff > 0) ? diff : 0; 
+        ASSERT((num_to_write < 256), "we need less than 255 values to compress the profiles.");
 
-            if (fwrite(&num_to_write, 1, 1, outfile) != 1)
-                FATAL_ERROR("issue occurred while writing to overflow table.");
-            curr_ptr_pos += 1;
+        if (fwrite(&num_to_write, 1, 1, outfile) != 1)
+            FATAL_ERROR("issue occurred while writing to overflow table.");
+        curr_ptr_pos += 1;
 
+        if (num_to_write > 0) {
             for (size_t j = NUMCOLSFORTABLE; j < inc_pairs.size()/2; j++) {
                 bool success = (fwrite(&inc_pairs[j*2], DOCWIDTH, 1, outfile) == 1);
                 success &= fwrite(&inc_pairs[j*2+1], DOCWIDTH, 1, outfile) == 1;
@@ -1012,19 +1070,16 @@ private:
                     FATAL_ERROR("issue occurred while writing the left data to overflow table.");
                 curr_ptr_pos += (DOCWIDTH * 2);
             }
-        } else {
-            // Do not write anything if both left and right are already
-            // included in the table...
         }
         return curr_ptr_pos;
     }
 
-    void write_to_taxcomp_dap(FILE* outfile, std::vector<size_t> left_inc, std::vector<size_t> right_inc, size_t col_num){
+    void write_to_taxcomp_dap(FILE* outfile, std::vector<size_t>& left_inc, std::vector<size_t>& right_inc, size_t col_num){
         size_t index = col_num * 2;
         size_t left_pos = (col_num < left_inc.size()/2) ? left_inc[index]: MAXLCPVALUE;
-        size_t left_lcp = (col_num < left_inc.size()/2) ? left_inc[index+1]: 0;
+        size_t left_lcp = (col_num < left_inc.size()/2) ? left_inc[index+1]: MAXLCPVALUE;
         size_t right_pos = (col_num < right_inc.size()/2) ? right_inc[index]: MAXLCPVALUE;
-        size_t right_lcp = (col_num < right_inc.size()/2) ? right_inc[index+1]: 0;
+        size_t right_lcp = (col_num < right_inc.size()/2) ? right_inc[index+1]: MAXLCPVALUE;
 
         bool success = fwrite(&left_pos, DOCWIDTH, 1, outfile) == 1;
         success &= fwrite(&left_lcp, DOCWIDTH, 1, outfile) == 1;
@@ -1035,6 +1090,10 @@ private:
     }
 
     void append_overflow_pointer(FILE* outfile, size_t curr_pos, size_t num_left_inc, size_t num_right_inc){
+        // When there is overflow, we write the pointer to the starting position
+        // in overflow file, otherwise it will just be 0. Take note that 0 would
+        // never be a valid position since we initialize the overflow document
+        // with number of documents so first possible position is 8.
         if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
             if (fwrite(&curr_pos, sizeof(size_t), 1, outfile) != 1)
                 FATAL_ERROR("issue occurred when writing the overflow pointer.");
