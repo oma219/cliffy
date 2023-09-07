@@ -7,6 +7,14 @@
 #ifndef _TAX_DOC_QUERIES_H
 #define _TAX_DOC_QUERIES_H
 
+//#define READ_NUM_DOCS(fd) unsigned(fd[0])
+#define READ_NUM_DOCS(fd) (0xFF & fd[0]) | ((0xFF & fd[1]) << 8) \
+                        | ((0xFF & fd[2]) << 16) | ((0xFF & fd[3]) << 24) \
+                        | ((0xFF & fd[4]) << 32) | ((0xFF & fd[5]) << 40) \
+                        | ((0xFF & fd[6]) << 48) | ((0xFF & fd[7]) << 56) 
+#define READ_NUM_PAIRS(fd, pos) (fd[pos] & 0xFF) 
+#define READ_DOC_ID_OR_LCP_VAL(fd, pos) (0xFF & fd[pos]) | ((0xFF & fd[pos+1]) << 8)
+
 template <class sparse_bv_type = ri::sparse_sd_vector,
           class rle_string_t = ms_rle_string_sd>
 class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
@@ -95,22 +103,56 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             edap_of_fd = open(edap_of_path.data(), O_RDONLY);
             if (sdap_of_fd == -1 || edap_of_fd == -1)
                 FATAL_ERROR("Issue with opening up the overflow files.");
-            assert(fstat (sdap_of_fd, &file_info_sdap) != -1);
-            assert(fstat (edap_of_fd, &file_info_edap) != -1);
+
+            if (fstat(sdap_of_fd, &file_info_sdap) == -1)
+                FATAL_ERROR("Issue with checking file size on overflow file.");
+            if (fstat (edap_of_fd, &file_info_edap) == -1)
+                FATAL_ERROR("Issue with checking file size on overflow file.");
         
             mmap_sdap_of = (char*) mmap(NULL, file_info_sdap.st_size, PROT_READ, MAP_PRIVATE, sdap_of_fd, 0);
             mmap_edap_of = (char*) mmap(NULL, file_info_edap.st_size, PROT_READ, MAP_PRIVATE, edap_of_fd, 0);
             assert(mmap_sdap_of != MAP_FAILED);
             assert(mmap_edap_of != MAP_FAILED);
 
-            // std::cout << unsigned(mmap_edap_of[7]) << std::endl;
-            // std::cout << mmap_edap_of[7] << std::endl;
 
-            for (int i = 0; i < 17; i++)
-                std::cout << "i = " << i << "  " << unsigned(mmap_edap_of[i]) << "  "  << mmap_edap_of[i] << std::endl;
+            // size_t num = READ_NUM_DOCS(mmap_sdap_of);
+            // std::cout << "num_docs = " << num << std::endl;
 
-            //std::cout << mmap_sdap_of[1] << " " << mmap_sdap_of[1] << std::endl;
-            //std::cout << mmap_sdap_of[6] << " " << mmap_sdap_of[7] << std::endl;
+            // num = READ_NUM_PAIRS(mmap_sdap_of, 8);
+            // std::cout << num << std::endl;
+
+            // num = READ_NUM_PAIRS(mmap_sdap_of, 9);
+            // std::cout << num << std::endl;
+
+            // num = READ_DOC_ID_OR_LCP_VAL(mmap_sdap_of, 10);
+            // std::cout << num << std::endl;
+
+            // num = READ_DOC_ID_OR_LCP_VAL(mmap_sdap_of, 12);
+            // std::cout << num << std::endl;
+
+            // num = READ_NUM_PAIRS(mmap_sdap_of, 14);
+            // std::cout << num << std::endl;
+
+            // num = READ_NUM_PAIRS(mmap_sdap_of, 15);
+            // std::cout << num << std::endl;
+
+            // num = READ_DOC_ID_OR_LCP_VAL(mmap_sdap_of, 16);
+            // std::cout << num << std::endl;
+
+            // num = READ_DOC_ID_OR_LCP_VAL(mmap_sdap_of, 18);
+            // std::cout << num << std::endl;
+
+            // num = READ_NUM_PAIRS(mmap_sdap_of, 20);
+            // std::cout << num << std::endl;
+
+            // num = READ_NUM_PAIRS(mmap_sdap_of, 21);
+            // std::cout << num << std::endl;
+
+            // num = READ_DOC_ID_OR_LCP_VAL(mmap_sdap_of, 22);
+            // std::cout << num << std::endl;
+
+            // num = READ_DOC_ID_OR_LCP_VAL(mmap_sdap_of, 24);
+            // std::cout << num << std::endl;
         }
 
         ~tax_doc_queries()

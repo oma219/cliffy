@@ -980,7 +980,6 @@ private:
                                    (old_sdap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
                         else
                             assert(tax_sdap_overflow_ptr == old_sdap_overflow_pos);
-
                     }
                     if (is_end) {
                         // Step 1: Write the BWT char
