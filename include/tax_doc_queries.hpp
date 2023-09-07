@@ -7,7 +7,6 @@
 #ifndef _TAX_DOC_QUERIES_H
 #define _TAX_DOC_QUERIES_H
 
-//#define READ_NUM_DOCS(fd) unsigned(fd[0])
 #define READ_NUM_DOCS(fd) (0xFF & fd[0]) | ((0xFF & fd[1]) << 8) \
                         | ((0xFF & fd[2]) << 16) | ((0xFF & fd[3]) << 24) \
                         | ((0xFF & fd[4]) << 32) | ((0xFF & fd[5]) << 40) \
@@ -114,7 +113,6 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             assert(mmap_sdap_of != MAP_FAILED);
             assert(mmap_edap_of != MAP_FAILED);
 
-
             // size_t num = READ_NUM_DOCS(mmap_sdap_of);
             // std::cout << "num_docs = " << num << std::endl;
 
@@ -162,6 +160,268 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             munmap(mmap_edap_of, file_info_edap.st_size);
             close(sdap_of_fd); close(edap_of_fd);
             csv_sdap_output.close(); csv_edap_output.close();
+        }
+
+        void query_profiles(std::string pattern_file){
+            /* Go through and query the reads and print the leftmost, rightmost occurrence of string */
+
+            // Open output/input files
+            std::ofstream listings_fd (pattern_file + ".listings");
+            gzFile fp; kseq_t* seq;
+
+            fp = gzopen(pattern_file.data(), "r"); 
+            if(fp == 0) {std::exit(1);}
+            seq = kseq_init(fp);
+
+            // Variable used keep track of position in lamdbas
+            size_t idx = 0;
+
+            // lambda to print out the document listing
+            auto process_profile = [&](std::vector<uint16_t> profile, uint16_t length, bool use_end) {
+                    bool leftmost_found = false, rightmost_found = false;
+                    bool left_done = false, right_done = false;
+
+                    size_t leftmost_doc = 0, rightmost_doc = 0;
+                    size_t tuple_num = 0;
+
+                    // Iterates through the main table ...
+                    while ((!leftmost_found || !rightmost_found) && (tuple_num < (this->num_cols * 4))) {
+                        // Check if the increases in each direction is done or not
+                        if (profile[tuple_num] == MAXLCPVALUE)
+                            left_done = true;
+                        if (profile[tuple_num+2] == MAXLCPVALUE)
+                            right_done = true;
+                        
+                        // Check if increases in each direction is not done, and we haven't
+                        // found an matching document, and then compare lengths
+                        if (!left_done && !leftmost_found && profile[tuple_num+1] >= length) {
+                            leftmost_doc = profile[tuple_num];
+                            leftmost_found = true;
+                        }
+                        if (!right_done && !rightmost_found && profile[tuple_num+3] >= length) {
+                            rightmost_doc = profile[tuple_num+2];
+                            rightmost_found = true;
+                        }
+                        tuple_num += 4;
+                    }
+
+                    // Double-check that if we haven't found the leftmost or rightmost
+                    // document that there are still some documents to look at in overflow file
+                    if ((!leftmost_found && left_done) || (!rightmost_found && right_done))
+                        FATAL_ERROR("Issue occurred when querying the taxonomic document array.");
+                    
+                    // Grab the overflow pointer based on which type of profiles was used
+                    char* of_ptr = nullptr;
+                    if (use_end)
+                        of_ptr = mmap_edap_of;
+                    else
+                        of_ptr = mmap_sdap_of;
+                    size_t of_pos = profile[this->num_cols * 4];
+                    
+                    // Use overflow file for left to right direction ...
+                    if (!leftmost_found && !left_done) {
+                        assert(of_pos != 0);
+
+                        size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
+                        assert(num_left_pairs < 256);
+                        of_pos += 1;
+
+                        // Go through all the L2R pairs
+                        for (size_t i = 0; i < num_left_pairs; i++){
+                            size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+
+                            if (lcp_val >= length) {
+                                leftmost_doc = doc_id;
+                                leftmost_found = true;
+                                break;
+                            }
+                        }
+                    }
+                    // Use overflow file for right to left direction ...
+                    if (!rightmost_found && !right_done) {
+                        of_pos = profile[this->num_cols * 4];
+                        assert(of_pos != 0);
+
+                        // Move past the left pairs to right pairs
+                        size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
+                        assert(num_left_pairs < 256);
+                        of_pos += 1 + (DOCWIDTH * 2 * num_left_pairs);
+
+                        size_t num_right_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
+                        assert(num_right_pairs < 256);
+                        of_pos += 1;
+
+                        // Go through all the R2L pairs
+                        for (size_t i = 0; i < num_right_pairs; i++){
+                            size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+
+                            if (lcp_val >= length) {
+                                rightmost_doc = doc_id;
+                                rightmost_found = true;
+                                break;
+                            }
+                        }
+                    }
+                    // Make sure we have found both directions
+                    assert((rightmost_found && leftmost_found));
+
+                    // Output the leftmost/rightmost nodes
+                    std::string output_str = "";
+                    output_str += "{" + std::to_string(leftmost_doc) + 
+                                  "," + std::to_string(rightmost_doc) + "} ";
+                    listings_fd << output_str;
+            };
+
+            // Process each read, and print out the document lists
+            while (kseq_read(seq)>=0) {
+
+                // Uppercase every character in read
+                for (size_t i = 0; i < seq->seq.l; ++i) 
+                {
+                    seq->seq.s[i] = static_cast<char>(std::toupper(seq->seq.s[i]));
+                }
+
+                size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
+                std::vector<uint16_t> curr_profile (this->num_cols * 4, 0);
+                uint16_t length = 0;
+                listings_fd << ">" << seq->name.s << "\n";
+
+                // Pointer variables to current profile being "used"
+                uint8_t curr_prof_ch = 0;
+                size_t curr_prof_pos = 0, num_LF_steps = 0;
+
+                // Tell us what type of profile to grab based on pointer variables
+                bool use_start = false, use_end = false;
+
+                // Perform backward search and report document listings when
+                // range goes empty or we reach the end
+                for (int i = (seq->seq.l-1); i >= 0; i--) {
+                    uint8_t next_ch = seq->seq.s[i];
+
+                    size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
+                    size_t num_ch_before_end = this->bwt.rank(end, next_ch);
+                    size_t start_run = this->bwt.run_of_position(start);
+                    size_t end_run = this->bwt.run_of_position(end-1);
+                    
+                    // range spans runs, so there are different BWT characters
+                    if (start_run != end_run) 
+                    {       
+                        // bwt range is empty, so will reset start and end
+                        if (num_ch_before_end == num_ch_before_start) {
+
+                            // grab the correct current profile, and update with steps
+                            if (use_end)
+                                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            else
+                                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+
+                            idx = 0;
+                            std::for_each(curr_profile.begin(), 
+                                          curr_profile.end(), 
+                                          [&](uint16_t &x){
+                                          if (idx % 2 == 1) 
+                                          {x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);} 
+                                          idx++;});
+                            listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
+
+                            length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                            process_profile(curr_profile, length, use_end);
+                            end_pos_of_match = i;
+
+                            start = 0; end = this->bwt.size();
+                            start_run = 0; end_run = this->r - 1;
+                            num_ch_before_start = 0;
+                            num_ch_before_end = this->bwt.number_of_letter(next_ch);
+                        }
+
+                        // grab any profile at run boundary of next_ch (choose first one)
+                        curr_prof_ch = next_ch;
+                        curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
+                        num_LF_steps = 0;
+                        use_start = false; use_end = false;
+
+                        // If the start position run is the same as query
+                        // ch, then we can guarantee that end of run is in the range
+                        // otherwise, we can guarantee the start of run is in range.
+                        if (this->bwt[start] == next_ch)
+                            use_end = true;
+                        else
+                            use_start = true;
+                    } 
+                    // range is within BWT run, but wrong character 
+                    else if (this->bwt[start] != next_ch) 
+                    {
+                        // grab the correct current profile, and update with steps
+                        if (use_end)
+                            curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        else
+                            curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+
+                        idx = 0;
+                        std::for_each(curr_profile.begin(), 
+                                        curr_profile.end(), 
+                                        [&](uint16_t &x){
+                                        if (idx % 2 == 1) 
+                                        {x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);} 
+                                        idx++;});
+                        listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
+
+                        length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                        process_profile(curr_profile, length, use_end);
+                        end_pos_of_match = i;
+
+                        start = 0; end = this->bwt.size();
+                        start_run = 0; end_run = this->r - 1;
+                        num_ch_before_start = 0;
+                        num_ch_before_end = this->bwt.number_of_letter(next_ch);
+
+                        // grab any profile at run boundary of next_ch (choose first one)
+                        curr_prof_ch = next_ch;
+                        curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
+                        num_LF_steps = 0;
+                        use_start = false; use_end = false;
+
+                        // If the start position run is the same as query
+                        // ch, then we can guarantee that end of run is in the range
+                        // otherwise, we can guarantee the start of run is in range.
+                        if (this->bwt[start] == next_ch)
+                            use_end = true;
+                        else
+                            use_start = true;
+                    }
+                    // range is within BWT run, and is the correct character
+                    else 
+                    {
+                        num_LF_steps++;
+                    }
+
+                    // Perform an LF step
+                    start = num_ch_before_start + this->F[next_ch]; 
+                    end = num_ch_before_end + this->F[next_ch];
+                }
+                // grab the current profile, and update with steps
+                if (use_end)
+                    curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                else
+                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+
+                // Update profile based on LF steps
+                idx = 0;
+                std::for_each(curr_profile.begin(), 
+                              curr_profile.end(), 
+                              [&](uint16_t &x){
+                              if (idx % 2 == 1) 
+                              {x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);} 
+                              idx++;});
+
+                listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
+                length = std::min((size_t) MAXLCPVALUE, end_pos_of_match+1);
+                process_profile(curr_profile, length, use_end);
+                listings_fd << "\n";
+            }
+
         }
 
     private:
@@ -233,7 +493,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
 
                 // Step 2: reading all the left and right increase pairs
-                std::vector<uint16_t> curr_record (num_cols * 4, 0);
+                std::vector<uint16_t> curr_record ((num_cols * 4) + 1, 0);
                 for (size_t j = 0; j < (num_cols*4); j++) {
                     if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                         FATAL_ERROR("fread() failed"); 
@@ -244,6 +504,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 size_t of_ptr = 0;
                 if (fread(&of_ptr, 8, 1, fd) != 1)
                     FATAL_ERROR("fread() failed");
+                curr_record[(num_cols * 4)] = of_ptr;
 
                 // If we are print out the profiles ...
                 if (print_profiles && i < profiles_to_print) {
@@ -252,6 +513,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         *out_fd << x << ",";
                     *out_fd << of_ptr << "\n";
                 }
+                prof_matrix[curr_bwt_ch].push_back(curr_record);
             }
         }
 
@@ -284,9 +546,6 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 this->F[i] += this->F[i - 1];
             return this->F;
         }
-
 };
-
-
 
 #endif /* end of include guard: _TAX_DOC_QUERIES_H */

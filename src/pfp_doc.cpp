@@ -134,8 +134,15 @@ int run_main(int argc, char** argv) {
             out.close(); out_bwt.close();
         }
     } else if (run_opts.use_taxcomp) {
+        // build the tax_doc_queries object (load data-structures)
         tax_doc_queries tax_doc_queries_obj(run_opts.ref_file,
                                             run_opts.num_cols);
+        // query the doc_profiles with the given reads
+        STATUS_LOG("run_main", "processing the patterns");
+
+        auto start = std::chrono::system_clock::now();
+        tax_doc_queries_obj.query_profiles(run_opts.pattern_file);
+        DONE_LOG((std::chrono::system_clock::now() - start));
     }
     std::cerr << "\n";
     return 0;
