@@ -21,6 +21,7 @@
 #include <pfp.hpp>
 #include <pfp_lcp_doc.hpp>
 #include <doc_queries.hpp>
+#include <tax_doc_queries.hpp>
 #include <immintrin.h>
 #include <getopt.h>
 
@@ -112,27 +113,38 @@ int run_main(int argc, char** argv) {
     parse_run_options(argc, argv, &run_opts);
     run_opts.validate();
 
-    // build the doc_queries object (load data-structures)
-    doc_queries doc_queries_obj (run_opts.ref_file);
+    if (!run_opts.use_taxcomp && !run_opts.use_topk) {
+        // build the doc_queries object (load data-structures)
+        doc_queries doc_queries_obj (run_opts.ref_file);
 
-    // query the doc_profiles with the given reads
-    STATUS_LOG("run_main", "processing the patterns");
+        // query the doc_profiles with the given reads
+        STATUS_LOG("run_main", "processing the patterns");
 
-    auto start = std::chrono::system_clock::now();
-    doc_queries_obj.query_profiles(run_opts.pattern_file);
-    DONE_LOG((std::chrono::system_clock::now() - start));
-    
-    // write index to disk
-    if (run_opts.write_to_file) {
-        std::string outfile = run_opts.ref_file + ".docprofiles";
-        std::string outfile_bwt = run_opts.ref_file + ".docprofiles.bwt";
-        std::ofstream out(outfile), out_bwt(outfile_bwt);
+        auto start = std::chrono::system_clock::now();
+        doc_queries_obj.query_profiles(run_opts.pattern_file);
+        DONE_LOG((std::chrono::system_clock::now() - start));
+        
+        // write index to disk
+        if (run_opts.write_to_file) {
+            std::string outfile = run_opts.ref_file + ".docprofiles";
+            std::string outfile_bwt = run_opts.ref_file + ".docprofiles.bwt";
+            std::ofstream out(outfile), out_bwt(outfile_bwt);
 
-        doc_queries_obj.serialize(out, out_bwt, run_opts.read_length);
-        out.close(); out_bwt.close();
+            doc_queries_obj.serialize(out, out_bwt, run_opts.read_length);
+            out.close(); out_bwt.close();
+        }
+    } else if (run_opts.use_taxcomp) {
+        // build the tax_doc_queries object (load data-structures)
+        tax_doc_queries tax_doc_queries_obj(run_opts.ref_file,
+                                            run_opts.num_cols);
+        // query the doc_profiles with the given reads
+        STATUS_LOG("run_main", "processing the patterns");
+
+        auto start = std::chrono::system_clock::now();
+        tax_doc_queries_obj.query_profiles(run_opts.pattern_file);
+        DONE_LOG((std::chrono::system_clock::now() - start));
     }
     std::cerr << "\n";
-    
     return 0;
 }
 
@@ -146,10 +158,17 @@ int info_main(int argc, char** argv) {
     parse_info_options(argc, argv, &info_opts);
     info_opts.validate();
 
-    // build the doc_queries object (load data-structures)
-    doc_queries doc_queries_obj (info_opts.ref_file, info_opts.output_path, info_opts.num_profiles);
+    if (!info_opts.use_taxcomp && !info_opts.use_topk) {
+        doc_queries doc_queries_obj (info_opts.ref_file, 
+                                     info_opts.output_path, 
+                                     info_opts.num_profiles);
+    } else if (info_opts.use_taxcomp) {
+        tax_doc_queries tax_doc_queries_obj(info_opts.ref_file,
+                                            info_opts.num_cols,
+                                            info_opts.num_profiles,
+                                            info_opts.output_path);
+    }
     std::cerr << "\n";
-    
     return 0;
 }
 
@@ -289,14 +308,30 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
 
 void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
     /* parses the arguments for the run sub-command, and returns struct */
+    static struct option long_options[] = {
+        {"help",      no_argument, NULL,  'h'},
+        {"ref",   required_argument, NULL,  'r'},
+        {"pattern",       required_argument, NULL,  'p'},
+        {"write",   no_argument, NULL,  's'},
+        {"length",   required_argument, NULL,  'l'},
+        {"taxcomp",   no_argument, NULL,  't'},
+        {"top-k",   no_argument, NULL,  'k'},
+        {"num-col",   required_argument, NULL,  'c'},
+        {0, 0, 0,  0}
+    };
+
     int c = 0;
-    while ((c = getopt(argc, argv, "hr:p:l:s")) >= 0) {
+    int long_index = 0;
+    while ((c = getopt_long(argc, argv, "hr:p:sl:tkc:", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
             case 'p': opts->pattern_file.assign(optarg); break;
             case 'l': opts->read_length = std::atoi(optarg); break;
             case 's': opts->write_to_file = true; break;
+            case 't': opts->use_taxcomp = true; break;
+            case 'k': opts->use_topk = true; break;
+            case 'c': opts->num_cols = std::atoi(optarg); break;
             default: pfpdoc_run_usage(); std::exit(1);
         }
     }
@@ -304,13 +339,28 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
 
 void parse_info_options(int argc, char** argv, PFPDocInfoOptions* opts) {
     /* parses the arguments for the info sub-command, and returns struct */
+    static struct option long_options[] = {
+        {"help",      no_argument, NULL,  'h'},
+        {"ref",   required_argument, NULL,  'r'},
+        {"output",       required_argument, NULL,  'o'},
+        {"num",       required_argument, NULL,  'n'},
+        {"taxcomp",       no_argument, NULL,  't'},
+        {"top-k",       no_argument, NULL,  'k'},
+        {"num-col",       required_argument, NULL,  'c'},
+        {0, 0, 0,  0}
+    };
+
     int c = 0;
-    while ((c = getopt(argc, argv, "hr:o:n:")) >= 0) {
+    int long_index = 0;
+    while ((c = getopt_long(argc, argv, "hr:o:n:tkc:", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
             case 'o': opts->output_path.assign(optarg); break;
             case 'n': opts->num_profiles = std::max(0, std::atoi(optarg)); break;
+            case 't': opts->use_taxcomp = true; break;
+            case 'k': opts->use_topk = true; break;
+            case 'c': opts->num_cols = std::atoi(optarg); break;
             default: pfpdoc_info_usage(); std::exit(1);
         }
     }
@@ -329,7 +379,7 @@ int pfpdoc_build_usage() {
 
     std::fprintf(stderr, "\t%-28suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
     std::fprintf(stderr, "\t%-28suse top-k compression of the document array (default: false)\n", "-p, --top-k");
-    std::fprintf(stderr, "\t%-28snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col");
+    std::fprintf(stderr, "\t%-18s%-10snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col", "[INT]");
     
     std::fprintf(stderr, "\t%-18s%-10sdocument number whose profiles to extract\n", "-e, --print-doc", "[INT]");
     std::fprintf(stderr, "\t%-28sturn off any heuristics used to build profiles\n\n", "-n, --no-heuristic");
@@ -345,13 +395,16 @@ int pfpdoc_run_usage() {
     std::fprintf(stderr, "Usage: pfp_doc run [options]\n\n");
 
     std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "\t%-10sprints this usage message\n", "-h");
-    std::fprintf(stderr, "\t%-10spath to the input reference file\n", "-r [arg]");
-    std::fprintf(stderr, "\t%-10spath to the pattern file\n", "-p [arg]");
-    std::fprintf(stderr, "\t%-10swrite data-structures to disk\n", "-s");
-    std::fprintf(stderr, "\t%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l [arg]");
-    // std::fprintf(stderr, "\t%-10sload document array that is 'taxonomic' compressed (default: false)\n", "-t, --taxcomp");
-    // std::fprintf(stderr, "\t%-10sload document array that is 'top-k' compressed (default: false)\n\n", "-p, --top-k");
+    std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
+    std::fprintf(stderr, "\t%-18s%-10spath to the input reference file\n", "-r, --ref", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10spath to the pattern file\n\n", "-p, --pattern", "[arg]");
+
+    std::fprintf(stderr, "\t%-28swrite data-structures to disk\n", "-s, --write");
+    std::fprintf(stderr, "\t%-18s%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l, --length", "[arg]");
+
+    std::fprintf(stderr, "\t%-28sload document array that is 'taxonomic' compressed (default: false)\n", "-t, --taxcomp");
+    std::fprintf(stderr, "\t%-28sload document array that is 'top-k' compressed (default: false)\n", "-k, --top-k");
+    std::fprintf(stderr, "\t%-18s%-10snumber of columns used in main table\n\n", "-c, --num-col", "[arg]");
     
     return 0;
 }
@@ -362,10 +415,14 @@ int pfpdoc_info_usage() {
     std::fprintf(stderr, "Usage: pfp_doc info [options]\n\n");
 
     std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "\t%-10sprints this usage message\n", "-h");
-    std::fprintf(stderr, "\t%-10soutput prefix used for index\n", "-r [arg]");
-    std::fprintf(stderr, "\t%-10soutput file path for printing document array profiles (csv format)\n", "-o [arg]");
-    std::fprintf(stderr, "\t%-10snumber of profiles to print if using -o\n\n", "-n [arg]");
+    std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
+    std::fprintf(stderr, "\t%-18s%-10soutput prefix used for index\n", "-r, --ref", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10soutput file path for printing document array profiles (csv format)\n", "-o, --output", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10snumber of profiles to print if using -o\n\n", "-n, --num", "[arg]");
+
+    std::fprintf(stderr, "\t%-18s%-10sdocument array is compressed using taxonomy\n", "-t, --taxcomp", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10sdocument array is compressed using top-k\n", "-k, --top-k", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10snumber of columns in compressed table\n\n", "-c, --num-col", "[arg]");
     
     return 0;
 }

@@ -60,6 +60,9 @@ struct PFPDocInfoOptions {
         std::string ref_file = "";
         std::string output_path = "";
         size_t num_profiles = 0;
+        bool use_taxcomp = false;
+        bool use_topk = false;
+        size_t num_cols =  0;
 
         void validate() {
             /* checks the arguments and makes sure they are valid */
@@ -78,6 +81,14 @@ struct PFPDocInfoOptions {
             if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len")
                 || !is_file(ref_file + ".sdap") || !is_file(ref_file + ".edap"))
                 FATAL_ERROR("At least one of the index files is not present.");
+
+            // check the structure type, can only be 1
+            if (use_taxcomp && use_topk)
+                FATAL_ERROR("Cannot use both taxonomic and top-k document array structures.");
+            
+            // checks the number of column argument
+            if ((use_taxcomp || use_topk) && (num_cols < 2 || num_cols > 20))
+                FATAL_ERROR("Invalid number of columns in compressed table, make sure to set it with -c, --num-col");
         }
 };
 
@@ -121,7 +132,10 @@ struct PFPDocRunOptions {
         std::string ref_file = "";
         std::string pattern_file = "";
         int read_length = 0;
+        int num_cols = -1;
         bool write_to_file = false;
+        bool use_taxcomp = false;
+        bool use_topk = false;
     
     void validate() {
         /* checks arguments and makes sure they are valid files */
@@ -136,9 +150,34 @@ struct PFPDocRunOptions {
             FATAL_ERROR("Length of read must be positive.");
 
         // check the index files
-        if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len")
-            || !is_file(ref_file + ".sdap") || !is_file(ref_file + ".edap"))
+        if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len"))
             FATAL_ERROR("At least one of the index files is not present.");
+
+        // make sure that we didn't try to turn on both types of doc array
+        if (use_taxcomp && use_topk)
+            FATAL_ERROR("Cannot use both a 'taxonomic' and 'top-k' compressed doc array.");
+        
+        // depending on the compression scheme used, lets
+        // check that the files are present
+        if (!use_taxcomp && !use_topk){
+            if (!is_file(ref_file + ".sdap") || !is_file(ref_file + ".edap"))
+                FATAL_ERROR("One or more of the document array files (*.sdap, *.edap) is not present.");
+
+        } else if (use_taxcomp) {
+            if (!is_file(ref_file + ".taxcomp.sdap") || !is_file(ref_file + ".taxcomp.edap")
+               || !is_file(ref_file + ".taxcomp.of.sdap") || !is_file(ref_file + ".taxcomp.of.edap"))
+               FATAL_ERROR("One or more of the 'taxonomic' document array files is not present.");
+
+        } else if (use_topk) {
+            if (!is_file(ref_file + ".topk.sdap") || !is_file(ref_file + ".topk.edap"))
+                FATAL_ERROR("One or more of the 'top-k' document array files is not present.");
+        }
+
+        // check if the user provided a number of columns for table
+        if ((use_taxcomp || use_topk) && (num_cols < 1 || num_cols > 20))
+            FATAL_ERROR("the number of columns in the document array is not valid or not provided.");
+
+
     }
 };
 
