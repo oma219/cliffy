@@ -399,6 +399,10 @@ public:
                     auto merge_lists = [&](uint8_t curr_row_ch, size_t curr_row_doc) {
                             std::vector<size_t> queue_pos_for_traversal;
                             size_t curr_pos_list_size = queue_pos_per_tuple[curr_bwt_ch][curr_row_doc].size();
+                            
+                            // for (auto x: queue_pos_per_tuple[curr_bwt_ch][curr_row_doc])
+                            //     std::cout << x << ",";
+                            // std::cout << "\n";
 
                             // lower bound position is the previous occurrence of the same bwt ch and document
                             // pair since we will not have max lcp with any suffixes above that suffix.

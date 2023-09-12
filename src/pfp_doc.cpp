@@ -195,7 +195,7 @@ void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_
     }
     if (build_opts->is_fasta) {command_stream << " -f";}
 
-    //std::cout << command_stream.str() << std::endl;
+    // std::cout << command_stream.str() << std::endl;
     //LOG(build_opts->verbose, "build_parse", ("Executing this command: " + command_stream.str()).data());
     auto parse_log = execute_cmd(command_stream.str().c_str());
     //OTHER_LOG(parse_log.data());
@@ -218,7 +218,14 @@ std::string execute_cmd(const char* cmd) {
         pclose(pipe);
         FATAL_ERROR("Error occurred while reading popen() stream.");
     }
-    pclose(pipe);
+
+    // Check if the command failed
+    size_t exit_code = WEXITSTATUS(pclose(pipe));
+    if (exit_code != 0) {
+        std::cout << "\n";
+        FATAL_ERROR("external command failed ... here is the error message:\n%s", output.data());
+    }
+
     return output;
 }
 
@@ -284,12 +291,13 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"top-k",   no_argument, NULL,  'p'},
         {"print-doc", required_argument, NULL, 'e'},
         {"no-heuristic", no_argument, NULL, 'n'},
+        {"modulus", required_argument, NULL, 'm'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:n", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_build_usage(); std::exit(1);
             case 'f': opts->input_list.assign(optarg); break;
@@ -301,6 +309,7 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
             case 'k': opts->numcolsintable = std::max(std::atoi(optarg), 2); break;
             case 'e': opts->doc_to_extract = std::atoi(optarg); break;
             case 'n': opts->use_heuristics = false; break;
+            case 'm': opts->hash_mod = std::atoi(optarg); break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
     }
@@ -384,7 +393,8 @@ int pfpdoc_build_usage() {
     std::fprintf(stderr, "\t%-18s%-10sdocument number whose profiles to extract\n", "-e, --print-doc", "[INT]");
     std::fprintf(stderr, "\t%-28sturn off any heuristics used to build profiles\n\n", "-n, --no-heuristic");
 
-    std::fprintf(stderr, "\t%-18s%-10swindow size used for pfp (default: 10)\n\n", "-w, --window", "[INT]");
+    std::fprintf(stderr, "\t%-18s%-10swindow size used for pfp (default: 10)\n", "-w, --window", "[INT]");
+    std::fprintf(stderr, "\t%-18s%-10shash-modulus used for pfp (default: 100)\n\n", "-m, --modulus", "[INT]");
 
     return 0;
 }
