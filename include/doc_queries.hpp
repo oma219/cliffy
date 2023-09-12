@@ -43,7 +43,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 std::string output_path="", 
                 size_t num_profiles=0, 
                 bool rle = true): 
-
                 ri::r_index<sparse_bv_type, rle_string_t>(),
                 start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
                 end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
@@ -377,6 +376,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
             else
                 curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+
+            std::cout << curr_profile << std::endl;
 
             // DEBUG:
             // if (use_end) {

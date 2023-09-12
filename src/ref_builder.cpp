@@ -99,6 +99,7 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
 				seq->seq.s[i] = static_cast<char>(std::toupper(seq->seq.s[i]));
             }
            
+            // Added dollar sign as separator, and added 1 to length
             output_fd << '>' << seq->name.s << '\n' << seq->seq.s << '\n';
             curr_id_seq_length += seq->seq.l;
             
@@ -116,6 +117,7 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
                 if (seq->seq.l & 1) // complement the remaining base
                     seq->seq.s[seq->seq.l>>1] = comp_tab[static_cast<int>(seq->seq.s[seq->seq.l>>1])];
 
+                // Added dollar sign as separator, and added 1 to length
                 output_fd << '>' << seq->name.s << "_rev_comp" << '\n' << seq->seq.s << '\n';
                 curr_id_seq_length += seq->seq.l;
             }
