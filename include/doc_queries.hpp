@@ -377,8 +377,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             else
                 curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
 
-            std::cout << curr_profile << std::endl;
-
             // DEBUG:
             // if (use_end) {
             //     for (auto x: curr_profile)
