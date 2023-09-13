@@ -39,6 +39,18 @@ typedef struct
     size_t sa_i = 0;
 } queue_entry_t;
 
+// struct that is used for top_k compression scenario
+struct doc_lcp_pair
+{
+    int doc = 0;
+    int lcp = 0;
+    doc_lcp_pair(int doc, int lcp) : doc(doc), lcp(lcp){}
+    bool operator<(const struct doc_lcp_pair& other) const{
+        return lcp < other.lcp;
+    }
+};
+
+// method to print queue_entry_t structs
 std::ostream& operator<<(std::ostream& os, const queue_entry_t& lcp_queue_entry) {
     return os << "[run #: " << lcp_queue_entry.run_num <<
                  ", bwt ch: " << lcp_queue_entry.bwt_ch <<
@@ -823,34 +835,59 @@ private:
                 left_increases.clear();
                 right_increases.clear();
             } else /* top-k */ {
-                // Read the full profile
-                size_t curr_val = 0;
-                for (size_t j = 0; j < num_docs; j++) {
-                    curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
-                    lcp_queue_profiles.pop_front();
-                    curr_profile[j] = curr_val;
-                }
+                if (!is_start && !is_end) {
+                    // Read the full profile quickly since not run boundary
+                    size_t curr_val = 0;
+                    for (size_t j = 0; j < num_docs; j++) {
+                        curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                        lcp_queue_profiles.pop_front();
+                    }
+                } else {
+                    std::priority_queue<doc_lcp_pair> pq;
+                    size_t k = NUMCOLSFORTABLE;
 
-                if (is_start || is_end) {
-                    // Sort documents by their LCP
-                    std::vector<size_t> idx(num_docs);
-                    std::iota(idx.begin(), idx.end(), 0);
-                    std::stable_sort(idx.begin(), idx.end(),
-                                     [&curr_profile](size_t v1, size_t v2) {return curr_profile[v1] > curr_profile[v2];});
+                    // Initialize the max-heap with k values
+                    for (size_t j = 0; j < k; j++) {
+                        int curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                        lcp_queue_profiles.pop_front();
+
+                        // We use negative versions in order to find kth smallest of the top-k
+                        pq.push(doc_lcp_pair(j, -curr_val));
+                        curr_profile[j] =  curr_val;
+                    }
+                    // Iterate through the rest of the values and maintain k largest lcp values
+                    for (size_t j = k; j < num_docs; j++) {
+                        int root_lcp = pq.top().lcp;
+                        int curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                        lcp_queue_profiles.pop_front();
+
+                        curr_profile[j] = curr_val;
+                        if ((-1 * curr_val) < root_lcp) {
+                            pq.pop();
+                            pq.push(doc_lcp_pair(j, -curr_val));
+                        }
+                    }
+                    assert(pq.size() == NUMCOLSFORTABLE);
 
                     // Write the topk documents to the index files
                     for (size_t j = 0; j < NUMCOLSFORTABLE; j++) {
-                        size_t curr_doc = idx[j];
-                        if (is_start && fwrite(&curr_doc, DOCWIDTH, 1, sdap_topk) != 1)
+                        doc_lcp_pair tup1 = pq.top();
+                        size_t doc_num = tup1.doc; 
+                        size_t lcp_num = (-1 * tup1.lcp);
+                        pq.pop();
+
+                        if (is_start && fwrite(&doc_num, DOCWIDTH, 1, sdap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.sdap file");
-                        if (is_start && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, sdap_topk) != 1)
+                        if (is_start && fwrite(&lcp_num, DOCWIDTH, 1, sdap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.sdap file");
-                        if (is_end && fwrite(&curr_doc, DOCWIDTH, 1, edap_topk) != 1)
+                        if (is_end && fwrite(&doc_num, DOCWIDTH, 1, edap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.edap file");
-                        if (is_end && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, edap_topk) != 1)
+                        if (is_end && fwrite(&lcp_num, DOCWIDTH, 1, edap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.edap file");
                     }
+            
                 }
+
             }
         }
     }
@@ -1014,35 +1051,63 @@ private:
                 left_increases.clear();
                 right_increases.clear();
             } else /* top-k */ {
+                
+                if (!is_start && !is_end) {
+                    // Read the full profile quickly since not run boundary
+                    size_t curr_val = 0;
+                    for (size_t j = 0; j < num_docs; j++) {
+                        curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                        lcp_queue_profiles.pop_front();
+                    }
+                } else {
+                    std::priority_queue<doc_lcp_pair> pq;
+                    size_t k = NUMCOLSFORTABLE;
 
-                // Read the full profile
-                size_t curr_val = 0;
-                for (size_t j = 0; j < num_docs; j++) {
-                    curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
-                    lcp_queue_profiles.pop_front();
-                    curr_profile[j] = curr_val;
-                }
+                    // Initialize the max-heap with k values
+                    for (size_t j = 0; j < k; j++) {
+                        int curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                        lcp_queue_profiles.pop_front();
 
-                if (is_start || is_end) {
-                    // Sort documents by their LCP
-                    std::vector<size_t> idx(num_docs);
-                    std::iota(idx.begin(), idx.end(), 0);
-                    std::stable_sort(idx.begin(), idx.end(),
-                                     [&curr_profile](size_t v1, size_t v2) {return curr_profile[v1] > curr_profile[v2];});
+                        // We use negative versions in order to find kth smallest of the top-k
+                        pq.push(doc_lcp_pair(j, -curr_val));
+                        curr_profile[j] =  curr_val;
+                    }
+                    // Iterate through the rest of the values and maintain k largest lcp values
+                    for (size_t j = k; j < num_docs; j++) {
+                        int root_lcp = pq.top().lcp;
+                        int curr_val = std::min(lcp_queue_profiles.front(), (size_t) MAXLCPVALUE);
+                        lcp_queue_profiles.pop_front();
+
+                        curr_profile[j] = curr_val;
+                        if ((-1 * curr_val) < root_lcp) {
+                            pq.pop();
+                            pq.push(doc_lcp_pair(j, -curr_val));
+                        }
+                    }
+                    assert(pq.size() == NUMCOLSFORTABLE);
 
                     // Write the topk documents to the index files
                     for (size_t j = 0; j < NUMCOLSFORTABLE; j++) {
-                        size_t curr_doc = idx[j];
-                        if (is_start && fwrite(&curr_doc, DOCWIDTH, 1, sdap_topk) != 1)
+                        doc_lcp_pair tup1 = pq.top();
+                        size_t doc_num = tup1.doc; 
+                        size_t lcp_num = (-1 * tup1.lcp);
+                        pq.pop();
+
+                        if (is_start && fwrite(&doc_num, DOCWIDTH, 1, sdap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.sdap file");
-                        if (is_start && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, sdap_topk) != 1)
+                        if (is_start && fwrite(&lcp_num, DOCWIDTH, 1, sdap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.sdap file");
-                        if (is_end && fwrite(&curr_doc, DOCWIDTH, 1, edap_topk) != 1)
+                        if (is_end && fwrite(&doc_num, DOCWIDTH, 1, edap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.edap file");
-                        if (is_end && fwrite(&curr_profile[curr_doc], DOCWIDTH, 1, edap_topk) != 1)
+                        if (is_end && fwrite(&lcp_num, DOCWIDTH, 1, edap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.edap file");
                     }
+            
                 }
+            
+            
+            
+            
             }
             
         }
