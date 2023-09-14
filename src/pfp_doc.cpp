@@ -22,6 +22,7 @@
 #include <pfp_lcp_doc.hpp>
 #include <doc_queries.hpp>
 #include <tax_doc_queries.hpp>
+#include <topk_doc_queries.hpp>
 #include <immintrin.h>
 #include <getopt.h>
 #include <queue>
@@ -144,6 +145,16 @@ int run_main(int argc, char** argv) {
         auto start = std::chrono::system_clock::now();
         tax_doc_queries_obj.query_profiles(run_opts.pattern_file);
         DONE_LOG((std::chrono::system_clock::now() - start));
+    } else if (run_opts.use_topk) {
+        // build the topk_doc_queries object (load data-structures)
+        topk_doc_queries topk_doc_queries_obj(run_opts.ref_file,
+                                              run_opts.num_cols);
+        // query the doc_profiles with the given reads
+        STATUS_LOG("run_main", "processing the patterns");
+
+        auto start = std::chrono::system_clock::now();
+        topk_doc_queries_obj.query_profiles(run_opts.pattern_file);
+        DONE_LOG((std::chrono::system_clock::now() - start));
     }
     std::cerr << "\n";
     return 0;
@@ -168,6 +179,11 @@ int info_main(int argc, char** argv) {
                                             info_opts.num_cols,
                                             info_opts.num_profiles,
                                             info_opts.output_path);
+    } else if (info_opts.use_topk) {
+        topk_doc_queries topk_doc_queries_obj(info_opts.ref_file,
+                                              info_opts.num_cols,
+                                              info_opts.num_profiles,
+                                              info_opts.output_path);
     }
     std::cerr << "\n";
     return 0;

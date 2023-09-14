@@ -869,7 +869,13 @@ private:
                     }
                     assert(pq.size() == NUMCOLSFORTABLE);
 
-                    // Write the topk documents to the index files
+                    // Step 1: Write the BWT character 
+                    if (is_start && fwrite(&curr_ch, 1, 1, sdap_topk) != 1)
+                        FATAL_ERROR("issue occurred while writing char to *topk.sdap file");
+                    if (is_end && fwrite(&curr_ch, 1, 1, edap_topk) != 1)
+                        FATAL_ERROR("issue occurred while writing char to *topk.edap file");
+
+                    // Step 2: Write the topk documents to the index files
                     for (size_t j = 0; j < NUMCOLSFORTABLE; j++) {
                         doc_lcp_pair tup1 = pq.top();
                         size_t doc_num = tup1.doc; 
@@ -1086,7 +1092,13 @@ private:
                     }
                     assert(pq.size() == NUMCOLSFORTABLE);
 
-                    // Write the topk documents to the index files
+                    // Step 1: Write the BWT character 
+                    if (is_start && fwrite(&curr_ch, 1, 1, sdap_topk) != 1)
+                        FATAL_ERROR("issue occurred while writing char to *topk.sdap file");
+                    if (is_end && fwrite(&curr_ch, 1, 1, edap_topk) != 1)
+                        FATAL_ERROR("issue occurred while writing char to *topk.edap file");
+
+                    // Step 2: Write the topk documents to the index files
                     for (size_t j = 0; j < NUMCOLSFORTABLE; j++) {
                         doc_lcp_pair tup1 = pq.top();
                         size_t doc_num = tup1.doc; 
@@ -1102,14 +1114,8 @@ private:
                         if (is_end && fwrite(&lcp_num, DOCWIDTH, 1, edap_topk) != 1)
                             FATAL_ERROR("error occurred while writing to *topk.edap file");
                     }
-            
                 }
-            
-            
-            
-            
             }
-            
         }
     }
 

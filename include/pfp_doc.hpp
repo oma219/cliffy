@@ -77,9 +77,17 @@ struct PFPDocInfoOptions {
             if (output_path.size() && !is_dir(p.parent_path().string()))
                 FATAL_ERROR("The output path for profiles is not valid.");  
 
-            // check the index files
-            if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len")
-                || !is_file(ref_file + ".sdap") || !is_file(ref_file + ".edap"))
+            // check the core index files (bwt)
+            if (!is_file(ref_file + ".bwt.heads") || !is_file(ref_file + ".bwt.len"))
+                FATAL_ERROR("At least one of the index files is not present.");
+            
+            // check for the document array profiles files
+            if ((!use_taxcomp && !use_topk) && (!is_file(ref_file + ".sdap") || !is_file(ref_file + ".edap")))
+                FATAL_ERROR("At least one of the index files is not present.");
+            if (use_taxcomp && (!is_file(ref_file + ".taxcomp.sdap") || !is_file(ref_file + ".taxcomp.edap") ||
+                                !is_file(ref_file + ".taxcomp.of.sdap") || !is_file(ref_file + ".taxcomp.of.edap")))
+                FATAL_ERROR("At least one of the index files is not present.");
+            if (use_topk && (!is_file(ref_file + ".topk.sdap") || !is_file(ref_file + ".topk.edap")))
                 FATAL_ERROR("At least one of the index files is not present.");
 
             // check the structure type, can only be 1
@@ -176,8 +184,6 @@ struct PFPDocRunOptions {
         // check if the user provided a number of columns for table
         if ((use_taxcomp || use_topk) && (num_cols < 1 || num_cols > 20))
             FATAL_ERROR("the number of columns in the document array is not valid or not provided.");
-
-
     }
 };
 
