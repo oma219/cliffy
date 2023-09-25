@@ -20,6 +20,7 @@
 #include <vector>
 #include <pfp.hpp>
 #include <pfp_lcp_doc.hpp>
+#include <pfp_lcp_doc_two_pass.hpp>
 #include <doc_queries.hpp>
 #include <tax_doc_queries.hpp>
 #include <topk_doc_queries.hpp>
@@ -30,6 +31,7 @@
 int build_main(int argc, char** argv) {
     /* main method for build the document profiles */
     if (argc == 1) return pfpdoc_build_usage();
+    auto build_start = std::chrono::system_clock::now();
 
     // grab the command-line options, and validate them
     PFPDocBuildOptions build_opts;
@@ -91,15 +93,25 @@ int build_main(int argc, char** argv) {
         FORCE_LOG("build_main", "no compression scheme will be used for the doc profiles");
 
     // Builds the BWT, SA, LCP, and document array profiles and writes to a file
-    STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
-    start = std::chrono::system_clock::now();
+    // STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
+    // start = std::chrono::system_clock::now();
 
-    pfp_lcp lcp(build_opts.use_heuristics, build_opts.doc_to_extract, build_opts.use_taxcomp, build_opts.use_topk, 
+    size_t num_runs = 0;
+    if (!build_opts.use_two_pass) {
+        pfp_lcp lcp(build_opts.use_heuristics, build_opts.doc_to_extract, build_opts.use_taxcomp, build_opts.use_topk, 
                 build_opts.numcolsintable, pf, build_opts.output_ref, &ref_build);
-    DONE_LOG((std::chrono::system_clock::now() - start));
+        num_runs = lcp.total_num_runs;
+    } else {
+        pfp_lcp_doc_two_pass lcp(pf, build_opts.output_ref, &ref_build, 
+                                 build_opts.temp_prefix, build_opts.tmp_size);
+        num_runs = lcp.total_num_runs;
+    }
+    // DONE_LOG((std::chrono::system_clock::now() - start));
 
     // Print stats before closing out
-    FORCE_LOG("build_main", "finished building, number of BWT runs = %ld", lcp.total_num_runs);
+    auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
+    FORCE_LOG("build_main", "finished: number of BWT runs = %ld, build time (s) = %.2f", 
+              num_runs, build_time.count());
     std::cerr << "\n";
     
     return 0;
@@ -309,12 +321,14 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"print-doc", required_argument, NULL, 'e'},
         {"no-heuristic", no_argument, NULL, 'n'},
         {"modulus", required_argument, NULL, 'm'},
+        {"two-pass", required_argument, NULL, 'a'},
+        {"tmp-size", required_argument, NULL, 's'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:a:s:", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_build_usage(); std::exit(1);
             case 'f': opts->input_list.assign(optarg); break;
@@ -327,6 +341,8 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
             case 'e': opts->doc_to_extract = std::atoi(optarg); break;
             case 'n': opts->use_heuristics = false; break;
             case 'm': opts->hash_mod = std::atoi(optarg); break;
+            case 'a': opts->use_two_pass = true; opts->temp_prefix.assign(optarg); break;
+            case 's': opts->tmp_size_str.assign(optarg); break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
     }
@@ -400,9 +416,12 @@ int pfpdoc_build_usage() {
     std::fprintf(stderr, "Options:\n");
     std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
     std::fprintf(stderr, "\t%-18s%-10spath to a file-list of genomes to use\n", "-f, --filelist", "[FILE]");
-    std::fprintf(stderr, "\t%-18s%-10soutput prefix path if using -f option\n", "-o, --output", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10soutput prefix path if using -f option\n", "-o, --output", "[PREFIX]");
     std::fprintf(stderr, "\t%-28sinclude the reverse-complement of sequence (default: false)\n\n", "-r, --revcomp");
 
+    std::fprintf(stderr, "\t%-18s%-10suse the 2-pass construction algorithm (default: false)\n", "-a, --two-pass", "[PREFIX]");
+    std::fprintf(stderr, "\t%-18s%-10ssize of temporary storage files in GB (e.g. 4GB)\n\n", "-s, --tmp-size", "[ARG]");
+    
     std::fprintf(stderr, "\t%-28suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
     std::fprintf(stderr, "\t%-28suse top-k compression of the document array (default: false)\n", "-p, --top-k");
     std::fprintf(stderr, "\t%-18s%-10snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col", "[INT]");

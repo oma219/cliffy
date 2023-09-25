@@ -54,7 +54,6 @@ bool is_integer(const std::string& str);
 bool endsWith(const std::string& str, const std::string& suffix);
 std::string execute_cmd(const char* cmd);
 
-
 struct PFPDocInfoOptions {
     public:
         std::string ref_file = "";
@@ -105,6 +104,8 @@ struct PFPDocBuildOptions {
         std::string input_list = "";
         std::string output_prefix = "";
         std::string output_ref = "";
+        std::string temp_prefix = "";
+        std::string tmp_size_str = "";
         bool use_rcomp = false;
         size_t pfp_w = 10;
         size_t hash_mod = 100;
@@ -115,17 +116,31 @@ struct PFPDocBuildOptions {
         size_t numcolsintable = 7;
         size_t doc_to_extract = 0;
         size_t use_heuristics = true;
+        bool use_two_pass = false;
+        size_t tmp_size = 0;
 
         void validate() {
             /* checks the arguments and make sure they are valid */
             if (input_list.length() && !is_file(input_list)) // provided a file-list
                 FATAL_ERROR("The provided file-list is not valid.");
             else if (input_list.length() == 0)
-                FATAL_ERROR("Need to provide a file-list for processing.");
+                FATAL_ERROR("need to provide a file-list for processing.");
 
             std::filesystem::path p (output_prefix);
             if (!is_dir(p.parent_path().string()))
-                FATAL_ERROR("Output path prefix is not in a valid directory."); 
+                FATAL_ERROR("output path prefix is not in a valid directory."); 
+            
+            if (use_two_pass) {
+                std::filesystem::path p (temp_prefix);
+                if (!is_dir(p.parent_path().string()))
+                    FATAL_ERROR("output path prefix for temporary file is not valid.");
+                if (tmp_size_str.length() == 0 || tmp_size_str.find("GB") == std::string::npos)
+                    FATAL_ERROR("temporary file size argument needs to be in this form (e.g. 4GB)");
+
+                tmp_size_str.erase(tmp_size_str.find("GB"), tmp_size_str.length());
+                tmp_size = std::atoi(tmp_size_str.data());
+                tmp_size *= 1073741824;
+            }
 
             if (use_taxcomp && use_topk)
                 FATAL_ERROR("taxonomic and top-k compression cannot be used together.");   

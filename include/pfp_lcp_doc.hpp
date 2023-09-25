@@ -98,6 +98,9 @@ public:
                 use_topk(topk)
                 // heads(1, 0)
     {       
+        STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
+        auto start = std::chrono::system_clock::now();
+
         // opening output files for data-structures like 
         // LCP, SA, BWT
         std::string outfile = filename + std::string(".lcp");
@@ -225,7 +228,6 @@ public:
 
                 // Hard case: phrases with different BWT characters precediing them
                 int_t lcp_suffix = compute_lcp_suffix(curr, prev);
-
                 typedef std::pair<int_t *, std::pair<int_t *, uint8_t>> pq_t;
 
                 // using lambda to compare elements.
@@ -617,7 +619,6 @@ public:
 
         if (rle)
             fclose(bwt_file_len);
-
         if (taxcomp) {
             fclose(sdap_tax); fclose(edap_tax);
             fclose(sdap_overtax); fclose(edap_overtax);
@@ -626,6 +627,9 @@ public:
         } else {
             fclose(sdap_file); fclose(edap_file);
         }
+
+        // Write out the time the build took ...
+        DONE_LOG((std::chrono::system_clock::now() - start));
     }
 
 
