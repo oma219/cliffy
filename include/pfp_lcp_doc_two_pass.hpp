@@ -25,30 +25,15 @@ extern "C" {
 #include <emmintrin.h>
 #include <cstdio>
 
-// std::vector<uint8_t> dna_chs = {'A', 'C', 'G', 'T', '$'};
-// for (auto x: dna_chs) {
-//     std::cout << x << ": ";
-//     for (size_t k = 0; k < num_docs; k++)
-//         std::cout << predecessor_max_lcp[x][k] << " ";
-//     std::cout << "\n";
-// } std::cout << "\n\n";
-
-// std::cout << "\ndap values:\n";
-// for (size_t i = 0; i < num_dap_temp_data; i++) {
-//     std::cout << ((0xFF & mmap_dap_inter[DOCWIDTH * i]) | (0xFF & mmap_dap_inter[DOCWIDTH * i + 1] << 8)) << ",";
-//     if (i > 0 && (i+1) % 3 == 0)
-//         std::cout << "\n";
-// }
-
 #define TEMPDATA_RECORD 6
 
 // macros for reading from file
 #define GET_IS_START(fd, num) (0x2 & fd[num * TEMPDATA_RECORD]) >> 1
 #define GET_IS_END(fd, num) (0x1 & fd[num * TEMPDATA_RECORD])
 #define GET_BWT_CH(fd, num) (fd[num * TEMPDATA_RECORD + 1])
-#define GET_DOC_OF_LF(fd, num) ((0xFF & fd[num * TEMPDATA_RECORD + 2]) | (0xFF & fd[num * TEMPDATA_RECORD + 3] << 8))
-#define GET_LCP(fd, num) ((0xFF & fd[num * TEMPDATA_RECORD + 4]) | (0xFF & fd[num * TEMPDATA_RECORD + 5] << 8))
-#define GET_DAP(fd, num) ((0xFF & fd[num * DOCWIDTH]) | (0xFF & fd[num * DOCWIDTH + 1] << 8))
+#define GET_DOC_OF_LF(fd, num) ((0xFF & fd[num * TEMPDATA_RECORD + 2]) | ((0xFF & fd[num * TEMPDATA_RECORD + 3]) << 8))
+#define GET_LCP(fd, num) ((0xFF & fd[num * TEMPDATA_RECORD + 4]) | ((0xFF & fd[num * TEMPDATA_RECORD + 5]) << 8))
+#define GET_DAP(fd, num) ((0xFF & fd[num * DOCWIDTH]) | ((0xFF & fd[num * DOCWIDTH + 1]) << 8))
 
 // struct for temp lcp queue data
 typedef struct
@@ -212,6 +197,10 @@ class pfp_lcp_doc_two_pass {
                     size_t pos_of_LF_i = (sa_i > 0) ? (sa_i - 1) : (ref_build->total_length-1);
                     size_t doc_of_LF_i = ref_build->doc_ends_rank(pos_of_LF_i);
 
+                    // std::cout << "run_num = " << curr_run_num <<  ", ch = " << curr_bwt_ch << ", doc = " << doc_of_LF_i << ", lcp = " << lcp_i << ", suffix_length = " << (ref_build->total_length - pos_of_LF_i)  << std::endl;
+                    // if (curr_run_num > 30)
+                    //     std::exit(1);
+
                     // Gather current suffix data
                     curr_data_entry = {is_start, is_end, curr_bwt_ch, doc_of_LF_i, lcp_i};
 
@@ -325,8 +314,8 @@ class pfp_lcp_doc_two_pass {
         delete[] predecessor_max_lcp;
 
         // Unmap the temp data file
-        munmap(mmap_lcp_inter, 200000000 * TEMPDATA_RECORD);
-        munmap(mmap_dap_inter, 200000000 * TEMPDATA_RECORD);
+        munmap(mmap_lcp_inter, tmp_file_size);
+        munmap(mmap_dap_inter, tmp_file_size);
         close(dap_inter_fd); close(lcp_inter_fd);
     }
 
@@ -592,10 +581,10 @@ class pfp_lcp_doc_two_pass {
             
             // little-endian orientation
             mmap_lcp_inter[start_pos + 2] = (data_entry.doc_num & 0xFF);
-            mmap_lcp_inter[start_pos + 3] = (data_entry.doc_num & 0xFF) >> 8;
+            mmap_lcp_inter[start_pos + 3] = (data_entry.doc_num & (0xFF << 8)) >> 8;
 
             mmap_lcp_inter[start_pos + 4] = (data_entry.lcp_i & 0xFF);
-            mmap_lcp_inter[start_pos + 5] = (data_entry.lcp_i & 0xFF) >> 8;
+            mmap_lcp_inter[start_pos + 5] = (data_entry.lcp_i & (0xFF << 8)) >> 8;
             
             num_lcp_temp_data += 1;
             assert(max_lcp_records >= num_lcp_temp_data);
