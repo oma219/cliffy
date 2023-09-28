@@ -197,8 +197,8 @@ class pfp_lcp_doc_two_pass {
                     size_t pos_of_LF_i = (sa_i > 0) ? (sa_i - 1) : (ref_build->total_length-1);
                     size_t doc_of_LF_i = ref_build->doc_ends_rank(pos_of_LF_i);
 
-                    // std::cout << "run_num = " << curr_run_num <<  ", ch = " << curr_bwt_ch << ", doc = " << doc_of_LF_i << ", lcp = " << lcp_i << ", suffix_length = " << (ref_build->total_length - pos_of_LF_i)  << std::endl;
-                    // if (curr_run_num > 30)
+                    // std::cout << "\npos = " << pos << ", run_num = " << curr_run_num <<  ", ch = " << curr_bwt_ch << ", doc = " << doc_of_LF_i << ", lcp = " << lcp_i << ", suffix_length = " << (ref_build->total_length - pos_of_LF_i)  << std::endl;
+                    // if (curr_run_num > 40)
                     //     std::exit(1);
 
                     // Gather current suffix data
@@ -256,7 +256,7 @@ class pfp_lcp_doc_two_pass {
         start = std::chrono::system_clock::now();
 
         size_t dap_ptr = num_dap_temp_data - num_docs;
-
+ 
         for (size_t i = num_lcp_temp_data; i > 0; i--) {
             // Re-initialize at each position
             std::fill(curr_da_profile.begin(), curr_da_profile.end(), 0);
@@ -271,9 +271,12 @@ class pfp_lcp_doc_two_pass {
             if (is_start || is_end) {
                 initialize_current_row_profile(doc_of_LF_i, curr_da_profile, bwt_ch);
                 for (size_t j = 0; j < num_docs; j++) {
+                    // if ((dap_ptr+j) >= 550 && (dap_ptr+j) < 560)
+                    //     std::cout << GET_DAP(mmap_dap_inter, (dap_ptr+j)) << " " << curr_da_profile[j]  << std::endl;
                     if (GET_DAP(mmap_dap_inter, (dap_ptr+j)) < curr_da_profile[j]){
-                        mmap_dap_inter[(dap_ptr+j) * DOCWIDTH] = (0xFF & curr_da_profile[j]);
-                        mmap_dap_inter[(dap_ptr+j) * DOCWIDTH + 1] = ((0xFF << 8) & curr_da_profile[j]) >> 8;
+                        size_t new_lcp_i = std::min((size_t) MAXLCPVALUE, curr_da_profile[j]);
+                        mmap_dap_inter[(dap_ptr+j) * DOCWIDTH] = (0xFF & new_lcp_i);
+                        mmap_dap_inter[(dap_ptr+j) * DOCWIDTH + 1] = ((0xFF << 8) & new_lcp_i) >> 8;
                     }
                 }
                 dap_ptr -= num_docs;
@@ -484,9 +487,9 @@ class pfp_lcp_doc_two_pass {
                 __mmask32 k = ~0; // all 32 bits on, means all 32 values will be written
                 arr2 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &lcp_i_vector[0]);
 
-                //std::vector<size_t> dna_chars = {65, 67, 71, 84, 85}; // A, C, G, T, U
-                //for (size_t ch_num: dna_chars) { // Optimization for DNA
-                for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                std::vector<size_t> dna_chars = {65, 67, 71, 78, 84, 85, 89}; // A, C, G, N, T, U, Y
+                for (size_t ch_num: dna_chars) { // Optimization for DNA
+                //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                     // use SIMD for all groups of 32
                     for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
                         // zero-mask, all the set bit positions are loaded
@@ -538,9 +541,9 @@ class pfp_lcp_doc_two_pass {
                 // Reset the LCP with respect to the current <ch, doc> pair
                 predecessor_max_lcp[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, lcp_i);
 
-                //std::vector<size_t> dna_chars = {65, 67, 71, 84, 85}; // A, C, G, T, U
-                //for (size_t ch_num: dna_chars) { // Optimization for DNA
-                for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                std::vector<size_t> dna_chars = {65, 67, 71, 78, 84, 85, 89}; // A, C, G, N, T, U, Y
+                for (size_t ch_num: dna_chars) { // Optimization for DNA
+                //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                     // use SIMD for all groups of 32
                     for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
                         // zero-mask, all the set bit positions are loaded
@@ -580,11 +583,13 @@ class pfp_lcp_doc_two_pass {
             mmap_lcp_inter[start_pos + 1] = data_entry.bwt_ch;
             
             // little-endian orientation
+            assert(data_entry.doc_num < MAXDOCS);
             mmap_lcp_inter[start_pos + 2] = (data_entry.doc_num & 0xFF);
             mmap_lcp_inter[start_pos + 3] = (data_entry.doc_num & (0xFF << 8)) >> 8;
 
-            mmap_lcp_inter[start_pos + 4] = (data_entry.lcp_i & 0xFF);
-            mmap_lcp_inter[start_pos + 5] = (data_entry.lcp_i & (0xFF << 8)) >> 8;
+            size_t new_lcp_i = std::min((size_t) MAXLCPVALUE, data_entry.lcp_i);
+            mmap_lcp_inter[start_pos + 4] = (new_lcp_i & 0xFF);
+            mmap_lcp_inter[start_pos + 5] = (new_lcp_i & (0xFF << 8)) >> 8;
             
             num_lcp_temp_data += 1;
             assert(max_lcp_records >= num_lcp_temp_data);
@@ -595,9 +600,10 @@ class pfp_lcp_doc_two_pass {
             size_t start_pos = num_dap_temp_data * DOCWIDTH;
             for (size_t i = 0; i < curr_prof.size(); i++) {
                 uint16_t curr_lcp = std::min((size_t) MAXLCPVALUE, curr_prof[i]);
+                //std::cout << (start_pos + (i*DOCWIDTH)) << " ";
                 mmap_dap_inter[start_pos + (i*DOCWIDTH)] = (0xFF & curr_lcp);
                 mmap_dap_inter[start_pos + (i*DOCWIDTH) + 1] = ((0xFF << 8) & curr_lcp) >> 8;
-            }
+            } //std::cout << "\n";
             num_dap_temp_data += curr_prof.size();
             assert(max_dap_records >= (num_dap_temp_data+num_docs));
         }
