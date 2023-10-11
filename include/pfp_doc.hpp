@@ -140,6 +140,9 @@ struct PFPDocBuildOptions {
                 tmp_size_str.erase(tmp_size_str.find("GB"), tmp_size_str.length());
                 tmp_size = std::atoi(tmp_size_str.data());
                 tmp_size *= 1073741824;
+
+                if (use_topk)
+                    FATAL_ERROR("top-k is not implemented yet with two-pass algorithm.");
             }
 
             if (use_taxcomp && use_topk)

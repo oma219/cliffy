@@ -103,15 +103,16 @@ int build_main(int argc, char** argv) {
         num_runs = lcp.total_num_runs;
     } else {
         pfp_lcp_doc_two_pass lcp(pf, build_opts.output_ref, &ref_build, 
-                                 build_opts.temp_prefix, build_opts.tmp_size);
+                                 build_opts.temp_prefix, build_opts.tmp_size,
+                                 build_opts.use_taxcomp, build_opts.use_topk,
+                                 build_opts.numcolsintable);
         num_runs = lcp.total_num_runs;
     }
     // DONE_LOG((std::chrono::system_clock::now() - start));
 
     // Print stats before closing out
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
-    FORCE_LOG("build_main", "finished: number of BWT runs = %ld, build time (s) = %.2f", 
-              num_runs, build_time.count());
+    FORCE_LOG("build_main", "finished: build time (s) = %.2f", build_time.count());
     std::cerr << "\n";
     
     return 0;

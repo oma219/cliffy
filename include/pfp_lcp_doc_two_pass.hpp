@@ -55,6 +55,9 @@ class pfp_lcp_doc_two_pass {
         size_t length = 0; // length of the current BWT run
 
         bool rle; // run-length encode the BWT
+        bool use_taxcomp = false;
+        bool use_topk = false; 
+
         size_t total_num_runs = 0;
         size_t NUMCOLSFORTABLE = 0; 
 
@@ -63,15 +66,19 @@ class pfp_lcp_doc_two_pass {
         size_t max_lcp_records = 0;
 
         pfp_lcp_doc_two_pass(pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, 
-                            std::string temp_prefix, size_t tmp_size, bool rle_ = true) : 
+                            std::string temp_prefix, size_t tmp_size, bool taxcomp, bool topk, 
+                            size_t num_cols, bool rle_ = true) : 
                 pf(pfp_),
                 min_s(1, pf.n),
                 pos_s(1,0),
                 head(0),
+                NUMCOLSFORTABLE(num_cols),
                 num_docs(ref_build->num_docs),
                 ch_doc_encountered(256, std::vector<bool>(ref_build->num_docs, false)),
                 rle(rle_),
-                tmp_file_size(tmp_size)
+                tmp_file_size(tmp_size),
+                use_taxcomp(taxcomp),
+                use_topk(topk)
     {   
         /* construction algorithm for document array profiles */
         STATUS_LOG("build_main", "building bwt and doc profiles based on pfp (1st-pass)");
@@ -271,8 +278,6 @@ class pfp_lcp_doc_two_pass {
             if (is_start || is_end) {
                 initialize_current_row_profile(doc_of_LF_i, curr_da_profile, bwt_ch);
                 for (size_t j = 0; j < num_docs; j++) {
-                    // if ((dap_ptr+j) >= 550 && (dap_ptr+j) < 560)
-                    //     std::cout << GET_DAP(mmap_dap_inter, (dap_ptr+j)) << " " << curr_da_profile[j]  << std::endl;
                     if (GET_DAP(mmap_dap_inter, (dap_ptr+j)) < curr_da_profile[j]){
                         size_t new_lcp_i = std::min((size_t) MAXLCPVALUE, curr_da_profile[j]);
                         mmap_dap_inter[(dap_ptr+j) * DOCWIDTH] = (0xFF & new_lcp_i);
@@ -288,6 +293,8 @@ class pfp_lcp_doc_two_pass {
             size_t lcp_i = GET_LCP(mmap_lcp_inter, (i-1));
             update_predecessor_max_lcp_table_up(lcp_i, doc_of_LF_i, bwt_ch);
         }
+        // print out build time
+        DONE_LOG((std::chrono::system_clock::now() - start));
 
         // print the document array profiles
         print_dap(num_lcp_temp_data);
@@ -301,14 +308,26 @@ class pfp_lcp_doc_two_pass {
         fclose(ssa_file); fclose(esa_file);
         fclose(bwt_file);
         fclose(lcp_file);
-        fclose(sdap_file); fclose(edap_file);
+
+        // close the approriate dap files
+        if (use_taxcomp) {
+            fclose(sdap_tax); fclose(edap_tax);
+            fclose(sdap_overtax); fclose(edap_overtax);    
+        } else {   
+            fclose(sdap_file); 
+            fclose(edap_file);
+        }
 
         // delete temporary files
         delete_temp_files(temp_prefix);
 
-        // print out build time
-        DONE_LOG((std::chrono::system_clock::now() - start));
-    }
+        // print out statistics
+        size_t total_tmp_used = (num_lcp_temp_data * TEMPDATA_RECORD) + (num_dap_temp_data * DOCWIDTH);
+
+        std::cerr << "\n";
+        FORCE_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld", 
+                  j, total_num_runs, total_tmp_used); 
+   }
 
     ~pfp_lcp_doc_two_pass() {
         // Deallocate memory for predecessor table
@@ -337,8 +356,11 @@ class pfp_lcp_doc_two_pass {
         FILE *bwt_file_len; // lengths file is using rle
         FILE *ssa_file; // start of suffix array sample
         FILE *esa_file; // end of suffix array sample
+
         FILE *sdap_file; // start of document array profiles
         FILE *edap_file; // end of document array profiles
+        FILE *sdap_tax, *edap_tax;
+        FILE *sdap_overtax, *edap_overtax;
 
         size_t num_docs = 0;
         size_t j = 0;
@@ -346,6 +368,9 @@ class pfp_lcp_doc_two_pass {
         size_t esa = 0;
         size_t num_blocks_of_32 = 0;
         uint8_t curr_bwt_ch = 0;
+
+        size_t tax_sdap_overflow_ptr = 0;
+        size_t tax_edap_overflow_ptr = 0;
 
         size_t num_dap_temp_data = 0;
         size_t num_lcp_temp_data = 0;
@@ -406,17 +431,41 @@ class pfp_lcp_doc_two_pass {
                     error("open() file " + outfile + " failed");
             }   
 
-            outfile = filename + std::string(".sdap");
-            if ((sdap_file = fopen(outfile.c_str(), "w")) == nullptr) 
-                error("open() file " + outfile + " failed");
-            if (fwrite(&num_docs, sizeof(size_t), 1, sdap_file) != 1)
-                error("SDAP write error: number of documents");
+            // Document Array Profiles file
+            if (use_taxcomp) {
+                outfile = filename + std::string(".taxcomp.sdap");
+                if ((sdap_tax = fopen(outfile.c_str(), "w")) == nullptr) 
+                    error("open() file " + outfile + " failed");
+                outfile = filename + std::string(".taxcomp.edap");
+                if ((edap_tax = fopen(outfile.c_str(), "w")) == nullptr) 
+                    error("open() file " + outfile + " failed");
 
-            outfile = filename + std::string(".edap");
-            if ((edap_file = fopen(outfile.c_str(), "w")) == nullptr)
-                error("open() file " + outfile + " failed");
-            if (fwrite(&num_docs, sizeof(size_t), 1, edap_file) != 1)
-                error("SDAP write error: number of documents"); 
+                outfile = filename + std::string(".taxcomp.of.sdap");
+                if ((sdap_overtax = fopen(outfile.c_str(), "w")) == nullptr) 
+                    error("open() file " + outfile + " failed");
+                if (fwrite(&num_docs, sizeof(size_t), 1, sdap_overtax) != 1)
+                    error("SDAP write error: number of documents");
+                outfile = filename + std::string(".taxcomp.of.edap");
+                if ((edap_overtax = fopen(outfile.c_str(), "w")) == nullptr) 
+                    error("open() file " + outfile + " failed");
+                if (fwrite(&num_docs, sizeof(size_t), 1, edap_overtax) != 1)
+                    error("EDAP write error: number of documents");
+
+                tax_sdap_overflow_ptr += sizeof(size_t);
+                tax_edap_overflow_ptr += sizeof(size_t);
+            } else {
+                outfile = filename + std::string(".sdap");
+                if ((sdap_file = fopen(outfile.c_str(), "w")) == nullptr) 
+                    error("open() file " + outfile + " failed");
+                if (fwrite(&num_docs, sizeof(size_t), 1, sdap_file) != 1)
+                    error("SDAP write error: number of documents");
+
+                outfile = filename + std::string(".edap");
+                if ((edap_file = fopen(outfile.c_str(), "w")) == nullptr)
+                    error("open() file " + outfile + " failed");
+                if (fwrite(&num_docs, sizeof(size_t), 1, edap_file) != 1)
+                    error("SDAP write error: number of documents"); 
+            }
 
             // Open intermediate files for storing data
             mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
@@ -600,10 +649,9 @@ class pfp_lcp_doc_two_pass {
             size_t start_pos = num_dap_temp_data * DOCWIDTH;
             for (size_t i = 0; i < curr_prof.size(); i++) {
                 uint16_t curr_lcp = std::min((size_t) MAXLCPVALUE, curr_prof[i]);
-                //std::cout << (start_pos + (i*DOCWIDTH)) << " ";
                 mmap_dap_inter[start_pos + (i*DOCWIDTH)] = (0xFF & curr_lcp);
                 mmap_dap_inter[start_pos + (i*DOCWIDTH) + 1] = ((0xFF << 8) & curr_lcp) >> 8;
-            } //std::cout << "\n";
+            } 
             num_dap_temp_data += curr_prof.size();
             assert(max_dap_records >= (num_dap_temp_data+num_docs));
         }
@@ -618,6 +666,10 @@ class pfp_lcp_doc_two_pass {
 
         void print_dap(size_t num_entries) {
             /* writes the document-array profiles to file */
+            std::vector<size_t> curr_profile;
+            std::vector<size_t> left_increases, right_increases;
+            curr_profile.reserve(num_docs);
+
             size_t dap_ptr = 0;
             for (size_t i = 0; i < num_entries; i++) {
                 // Grab the data for current suffix
@@ -627,27 +679,195 @@ class pfp_lcp_doc_two_pass {
                 size_t doc_of_LF_i = GET_DOC_OF_LF(mmap_lcp_inter, i);
 
                 // Load profiles if its a run-boundary
-                std::vector<size_t> curr_prof (num_docs, 0);
                 if (is_start || is_end) {
-                    // Write the BWT character
-                    if (is_start && fwrite(&bwt_ch, 1, 1, sdap_file) != 1)
-                        FATAL_ERROR("issue occurred while writing to *.sdap file");
-                    if (is_end && fwrite(&bwt_ch, 1, 1, edap_file) != 1)
-                        FATAL_ERROR("issue occurred while writing to *.sdap file");
                     
-                    // Write the profile
-                    for (size_t j = 0; j < num_docs; j++) {
-                        size_t prof_val = GET_DAP(mmap_dap_inter, (dap_ptr+j));
-                        assert(prof_val <= MAXLCPVALUE);
+                    // option 1: write full document array profile
+                    if (!use_taxcomp && !use_topk) {
 
-                        if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
+                        // write out the BWT character
+                        if (is_start && fwrite(&bwt_ch, 1, 1, sdap_file) != 1)
                             FATAL_ERROR("issue occurred while writing to *.sdap file");
-                        if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
-                            FATAL_ERROR("issue occurred while writing to *.edap file");
+                        if (is_end && fwrite(&bwt_ch, 1, 1, edap_file) != 1)
+                            FATAL_ERROR("issue occurred while writing to *.sdap file");
+                        
+                        // write out the lcps
+                        for (size_t j = 0; j < num_docs; j++) {
+                            size_t prof_val = GET_DAP(mmap_dap_inter, (dap_ptr+j));
+                            assert(prof_val <= MAXLCPVALUE);
+
+                            if (is_start && fwrite(&prof_val, DOCWIDTH, 1, sdap_file) != 1)
+                                FATAL_ERROR("issue occurred while writing to *.sdap file");
+                            if (is_end && fwrite(&prof_val, DOCWIDTH, 1, edap_file) != 1)
+                                FATAL_ERROR("issue occurred while writing to *.edap file");
+                        }
+                    // option 2: use taxonomic compression
+                    } else if (use_taxcomp) {
+
+                        size_t curr_val = 0; 
+                        size_t prev_max = std::min(GET_DAP(mmap_dap_inter, (dap_ptr)), MAXLCPVALUE);
+                        left_increases.push_back(0);
+                        left_increases.push_back(prev_max);
+
+                        // keep track of increases from left
+                        for (size_t j = 0; j < num_docs; j++) {
+                            curr_val = GET_DAP(mmap_dap_inter, (dap_ptr+j));
+                            assert(prof_val <= MAXLCPVALUE);
+                            curr_profile[j] = curr_val;
+
+                            if (curr_val > prev_max) {
+                                left_increases.push_back(j);
+                                left_increases.push_back(curr_val);
+                                prev_max = curr_val;
+                            }
+                        }
+                        ASSERT((left_increases.size() % 2 == 0), "issue occurred in writing of DAP.");
+                        size_t num_left_inc = left_increases.size()/2;
+                        size_t num_right_inc = 0;
+
+                        // gather the increases from right
+                        prev_max = curr_profile[num_docs-1];
+                        right_increases.push_back(num_docs-1);
+                        right_increases.push_back(prev_max);
+
+                        for (int j = num_docs-1; j >= 0; j--) {
+                            if (curr_profile[j] > prev_max) {
+                                right_increases.push_back(j);
+                                right_increases.push_back(curr_profile[j]);
+                                prev_max = curr_profile[j];
+                            }
+                        }
+                        ASSERT((right_increases.size() % 2 == 0), "issue occurred in writing of DAP.");
+                        num_right_inc = right_increases.size() / 2;
+
+                        size_t old_sdap_overflow_pos = tax_sdap_overflow_ptr;
+                        size_t old_edap_overflow_pos = tax_edap_overflow_ptr;
+
+                        // number of overflow pairs
+                        size_t num_of_pairs = (num_left_inc > NUMCOLSFORTABLE) ? (num_left_inc-NUMCOLSFORTABLE) : 0;
+                        num_of_pairs += (num_right_inc > NUMCOLSFORTABLE) ? (num_right_inc-NUMCOLSFORTABLE) : 0;
+
+                        // write to start-runs file
+                        if (is_start) {
+                            // Step 1: Write the BWT char
+                            if (fwrite(&bwt_ch, 1, 1, sdap_tax) != 1)
+                                FATAL_ERROR("issue occurred while writing char to *taxcomp.sdap file");
+                            
+                            // Step 2: Writes the ordered pairs to the file
+                            for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
+                                write_to_taxcomp_dap(sdap_tax, left_increases, right_increases, i);
+                            
+                            // Step 3: Writes the overflow pointer to a file in order to be able to go to overflow file
+                            append_overflow_pointer(sdap_tax, tax_sdap_overflow_ptr, num_left_inc, num_right_inc);
+                            
+                            // Step 4: Write any leftover pairs to overflow table
+                            if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                                tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, left_increases, tax_sdap_overflow_ptr);
+                                tax_sdap_overflow_ptr = write_remaining_pairs_to_overflow(sdap_overtax, right_increases, tax_sdap_overflow_ptr);
+                            }
+
+                            // Check that overflow ptr is being incremented as expected
+                            if (num_of_pairs > 0)
+                                assert (tax_sdap_overflow_ptr == 
+                                    (old_sdap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                            else
+                                assert(tax_sdap_overflow_ptr == old_sdap_overflow_pos);
+                        }
+                        // write to end-runs file
+                        if (is_end) {
+                            // Step 1: Write the BWT char
+                            if (fwrite(&bwt_ch, 1, 1, edap_tax) != 1)
+                                FATAL_ERROR("issue occurred while writing char to *taxcomp.edap file");
+
+                            // Step 2: Writes the ordered pairs to the file
+                            for (size_t i = 0; i < NUMCOLSFORTABLE; i++) 
+                                write_to_taxcomp_dap(edap_tax, left_increases, right_increases, i);
+                            
+                            // Step 3: Writes the overflow pointer to a file in order to be able to go to overflow file
+                            append_overflow_pointer(edap_tax, tax_edap_overflow_ptr, num_left_inc, num_right_inc);
+                            
+                            // Step 4: Write any leftover pairs to overflow table
+                            if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                                tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, left_increases, tax_edap_overflow_ptr);
+                                tax_edap_overflow_ptr = write_remaining_pairs_to_overflow(edap_overtax, right_increases, tax_edap_overflow_ptr);
+                            }
+
+                            // Check that overflow ptr is being incremented as expected
+                            if (num_of_pairs > 0)
+                                assert (tax_edap_overflow_ptr == 
+                                    (old_edap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                            else
+                                assert(tax_edap_overflow_ptr == old_edap_overflow_pos);
+                        }
+
+                        // empty the vectors
+                        left_increases.clear();
+                        right_increases.clear();
+                    } else {
+                        FATAL_ERROR("Not implemented yet ...");
                     }
+                    // Increment after writing the profile
                     dap_ptr += num_docs;
                 }
             }
+        }
+
+        void write_to_taxcomp_dap(FILE* outfile, std::vector<size_t>& left_inc, std::vector<size_t>& right_inc, size_t col_num){
+            size_t index = col_num * 2;
+            size_t left_pos = (col_num < left_inc.size()/2) ? left_inc[index]: MAXLCPVALUE;
+            size_t left_lcp = (col_num < left_inc.size()/2) ? left_inc[index+1]: MAXLCPVALUE;
+            size_t right_pos = (col_num < right_inc.size()/2) ? right_inc[index]: MAXLCPVALUE;
+            size_t right_lcp = (col_num < right_inc.size()/2) ? right_inc[index+1]: MAXLCPVALUE;
+
+            bool success = fwrite(&left_pos, DOCWIDTH, 1, outfile) == 1;
+            success &= fwrite(&left_lcp, DOCWIDTH, 1, outfile) == 1;
+            success &= fwrite(&right_pos, DOCWIDTH, 1, outfile) == 1;
+            success &= fwrite(&right_lcp, DOCWIDTH, 1, outfile) == 1;
+            if (!success)
+                FATAL_ERROR("issue occurred during the writing to the *.taxcomp.dap file");
+        }
+
+        void append_overflow_pointer(FILE* outfile, size_t curr_pos, size_t num_left_inc, size_t num_right_inc){
+            // When there is overflow, we write the pointer to the starting position
+            // in overflow file, otherwise it will just be 0. Take note that 0 would
+            // never be a valid position since we initialize the overflow document
+            // with number of documents so first possible position is 8.
+            if (num_left_inc > NUMCOLSFORTABLE || num_right_inc > NUMCOLSFORTABLE) {
+                if (fwrite(&curr_pos, sizeof(size_t), 1, outfile) != 1)
+                    FATAL_ERROR("issue occurred when writing the overflow pointer.");
+            } else {
+                size_t overflow_pos = 0;
+                if (fwrite(&overflow_pos, sizeof(size_t), 1, outfile) != 1)
+                    FATAL_ERROR("issue occurred when writing the overflow pointer.");
+            }
+        }
+
+        size_t write_remaining_pairs_to_overflow(FILE* outfile, std::vector<size_t>& inc_pairs, size_t curr_ptr_pos){
+           /* 
+            * Note: 
+            * This method is only called when the document array profile has an 
+            * overflow either in the left to right or right to left direction so
+            * we always write something to the overflow even if it just 1 byte saying
+            * there are no leftover pairs in one of the direction in order to guarantee
+            * we can find all the data.
+            */
+            int diff = (inc_pairs.size()/2 - NUMCOLSFORTABLE);
+            size_t num_to_write = (diff > 0) ? diff : 0; 
+            ASSERT((num_to_write < 256), "we need less than 255 values to compress the profiles.");
+
+            if (fwrite(&num_to_write, 1, 1, outfile) != 1)
+                FATAL_ERROR("issue occurred while writing to overflow table.");
+            curr_ptr_pos += 1;
+
+            if (num_to_write > 0) {
+                for (size_t j = NUMCOLSFORTABLE; j < inc_pairs.size()/2; j++) {
+                    bool success = (fwrite(&inc_pairs[j*2], DOCWIDTH, 1, outfile) == 1);
+                    success &= fwrite(&inc_pairs[j*2+1], DOCWIDTH, 1, outfile) == 1;
+                    if (!success)
+                        FATAL_ERROR("issue occurred while writing the left data to overflow table.");
+                    curr_ptr_pos += (DOCWIDTH * 2);
+                }
+            }
+            return curr_ptr_pos;
         }
 
         /* 
