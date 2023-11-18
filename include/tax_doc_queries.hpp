@@ -38,8 +38,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         // This vectors has the following dimensions: [256][num of ith char][num_docs]
         // This structure stores the DA profiles for each character separately.
-        std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles;
-        std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles;
+        std::vector<std::vector<std::vector<uint64_t>>> start_doc_profiles;
+        std::vector<std::vector<std::vector<uint64_t>>> end_doc_profiles;
 
         tax_doc_queries(std::string filename,
                         size_t num_cols,
@@ -50,8 +50,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         rle (rle),
                         num_cols (num_cols),
                         ri::r_index<sparse_bv_type, rle_string_t>(),
-                        start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
-                        end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
+                        start_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
+                        end_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0)))
         {
             // load the BWT 
             STATUS_LOG("build_profiles", "loading the bwt of the input text");
@@ -138,12 +138,18 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             size_t idx = 0;
 
             // lambda to print out the document listing
-            auto process_profile = [&](std::vector<uint16_t> profile, uint16_t length, bool use_end) {
+            auto process_profile = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end) {
                     bool leftmost_found = false, rightmost_found = false;
                     bool left_done = false, right_done = false;
 
                     size_t leftmost_doc = 0, rightmost_doc = 0;
                     size_t tuple_num = 0;
+
+                    // std::cout << "\nlength = " << length << std::endl;
+                    // std::cout << "\nprofile: ";
+                    // for (auto x: profile)
+                    //     std::cout << x << " ";
+                    // std::cout << "\n";
 
                     // Iterates through the main table ...
                     while ((!leftmost_found || !rightmost_found) && (tuple_num < (this->num_cols * 4))) {
@@ -178,6 +184,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     else
                         of_ptr = mmap_sdap_of;
                     size_t of_pos = profile[this->num_cols * 4];
+
+                    // std::cout << leftmost_found << " " << rightmost_found << std::endl;
+                    // std::cout << of_pos << std::endl;
                     
                     // Use overflow file for left to right direction ...
                     if (!leftmost_found && !left_done) {
@@ -186,11 +195,13 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
                         assert(num_left_pairs < 256);
                         of_pos += 1;
+                        // std::cout << "num_pairs_left = " << num_left_pairs << "\n";
 
                         // Go through all the L2R pairs
                         for (size_t i = 0; i < num_left_pairs; i++){
                             size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
                             size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
 
                             if (lcp_val >= length) {
                                 leftmost_doc = doc_id;
@@ -212,12 +223,14 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         size_t num_right_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
                         assert(num_right_pairs < 256);
                         of_pos += 1;
+                        // std::cout << "num_pairs_right = " << num_right_pairs << "\n";
 
                         // Go through all the R2L pairs
                         for (size_t i = 0; i < num_right_pairs; i++){
                             size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
                             size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
-
+                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
+                            
                             if (lcp_val >= length) {
                                 rightmost_doc = doc_id;
                                 rightmost_found = true;
@@ -233,6 +246,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     output_str += "{" + std::to_string(leftmost_doc) + 
                                   "," + std::to_string(rightmost_doc) + "} ";
                     listings_fd << output_str;
+
+                    // std::cout << output_str << "\n";
+                    // std::exit(1);
             };
 
             // Process each read, and print out the document lists
@@ -245,7 +261,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
 
                 size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
-                std::vector<uint16_t> curr_profile (this->num_cols * 4, 0);
+                std::vector<uint64_t> curr_profile (this->num_cols * 4, 0);
                 uint16_t length = 0;
                 listings_fd << ">" << seq->name.s << "\n";
 
@@ -281,7 +297,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                             idx = 0;
                             std::for_each(curr_profile.begin(), 
                                           curr_profile.end(), 
-                                          [&](uint16_t &x){
+                                          [&](uint64_t &x){
                                           if (idx % 2 == 1) 
                                           {x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);} 
                                           idx++;});
@@ -323,7 +339,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         idx = 0;
                         std::for_each(curr_profile.begin(), 
                                         curr_profile.end(), 
-                                        [&](uint16_t &x){
+                                        [&](uint64_t &x){
                                         if (idx % 2 == 1) 
                                         {x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);} 
                                         idx++;});
@@ -372,7 +388,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 idx = 0;
                 std::for_each(curr_profile.begin(), 
                               curr_profile.end(), 
-                              [&](uint16_t &x){
+                              [&](uint64_t &x){
                               if (idx % 2 == 1) 
                               {x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);} 
                               idx++;});
@@ -381,6 +397,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 length = std::min((size_t) MAXLCPVALUE, end_pos_of_match+1);
                 process_profile(curr_profile, length, use_end);
                 listings_fd << "\n";
+
+                // std::exit(1);
             }
 
         }
@@ -434,7 +452,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             fclose(fd);
         }
 
-        void read_doc_profiles_main_table(std::vector<std::vector<std::vector<uint16_t>>>& prof_matrix, 
+        void read_doc_profiles_main_table(std::vector<std::vector<std::vector<uint64_t>>>& prof_matrix, 
                                           std::string input_file,
                                           std::ofstream* out_fd = nullptr) 
         {
@@ -454,7 +472,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
 
                 // Step 2: reading all the left and right increase pairs
-                std::vector<uint16_t> curr_record ((num_cols * 4) + 1, 0);
+                std::vector<uint64_t> curr_record ((num_cols * 4) + 1, 0);
                 for (size_t j = 0; j < (num_cols*4); j++) {
                     if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                         FATAL_ERROR("fread() failed"); 
