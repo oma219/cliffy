@@ -263,7 +263,6 @@ class pfp_lcp_doc_two_pass {
         start = std::chrono::system_clock::now();
 
         size_t dap_ptr = num_dap_temp_data - num_docs;
- 
         for (size_t i = num_lcp_temp_data; i > 0; i--) {
             // Re-initialize at each position
             std::fill(curr_da_profile.begin(), curr_da_profile.end(), 0);
@@ -288,7 +287,6 @@ class pfp_lcp_doc_two_pass {
                 assert(dap_ptr >= 0);
             }
             ch_doc_encountered[bwt_ch][doc_of_LF_i] = true;
-
             // Update the predecessor table for next suffix
             size_t lcp_i = GET_LCP(mmap_lcp_inter, (i-1));
             update_predecessor_max_lcp_table_up(lcp_i, doc_of_LF_i, bwt_ch);
