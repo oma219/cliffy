@@ -137,6 +137,130 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             // Variable used keep track of position in lamdbas
             size_t idx = 0;
 
+            // Alternate lambda to print out the document listing, that
+            // will be tested to see if it improves classification
+            auto process_profile_with_subtree = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end) {
+                    bool left_done = false, right_done = false;
+                    std::vector<uint64_t> left_docs;
+                    std::vector<uint64_t> right_docs;
+                    size_t tuple_num = 0;
+
+                    // Iterates through the main table ...
+                    while ((!left_done || !right_done) && (tuple_num < (this->num_cols * 4))) {                        
+                        // Check if increases in either direction are still going, and 
+                        // lcp is greater than query length
+                        if (!left_done && profile[tuple_num+1] >= length) {
+                            left_docs.push_back(profile[tuple_num]);
+                        }
+                        if (!right_done && profile[tuple_num+3] >= length) {
+                            right_docs.push_back(profile[tuple_num+2]);
+                        }
+
+                        // Checks if the LCP value has reached the max, and
+                        // the monotonic increases have ended
+                        if (profile[tuple_num+1] == MAXLCPVALUE)
+                            left_done = true;
+                        if (profile[tuple_num+3] == MAXLCPVALUE)
+                            right_done = true;
+                        tuple_num += 4;
+                    }
+
+                    // Double-check that if we haven't found the leftmost or rightmost
+                    // document that there are still some documents to look at in overflow file
+                    if ((left_docs.size() == 0 && left_done) || (right_docs.size() == 0 && right_done))
+                        FATAL_ERROR("Issue occurred when querying the taxonomic document array.");
+
+                    // Grab the overflow pointer based on which type of profiles was used
+                    char* of_ptr = nullptr;
+                    if (use_end)
+                        of_ptr = mmap_edap_of;
+                    else
+                        of_ptr = mmap_sdap_of;
+                    size_t of_pos = profile[this->num_cols * 4];
+
+                    // Make sure that both directions are done based on overflow ptr
+                    if (of_pos == 0)
+                        assert((left_done && right_done));
+
+                    // std::cout << leftmost_found << " " << rightmost_found << std::endl;
+                    // std::cout << of_pos << std::endl;
+                    
+                    // Use overflow file for left to right direction ...
+                    if (!left_done) {
+                        // std::cout << "left is not done!" << std::endl;
+                        assert(of_pos != 0);
+
+                        size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
+                        assert(num_left_pairs < 256);
+                        of_pos += 1;
+                        // std::cout << "num_pairs_left = " << num_left_pairs << "\n";
+
+                        // Go through all the L2R pairs
+                        for (size_t i = 0; i < num_left_pairs; i++){
+                            size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
+
+                            if (lcp_val >= length) {
+                                left_docs.push_back(doc_id);
+                                //leftmost_doc = doc_id;
+                                //leftmost_found = true;
+                                //break;
+                            }
+                        }
+                    }
+                    // Use overflow file for right to left direction ...
+                    if (!right_done) {
+                        // std::cout << "right is not done!" << std::endl;
+                        of_pos = profile[this->num_cols * 4];
+                        assert(of_pos != 0);
+
+                        // Move past the left pairs to right pairs
+                        size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
+                        assert(num_left_pairs < 256);
+                        of_pos += 1 + (DOCWIDTH * 2 * num_left_pairs);
+
+                        size_t num_right_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
+                        assert(num_right_pairs < 256);
+                        of_pos += 1;
+                        // std::cout << "num_pairs_right = " << num_right_pairs << "\n";
+
+                        // Go through all the R2L pairs
+                        for (size_t i = 0; i < num_right_pairs; i++){
+                            size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
+                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
+                            
+                            if (lcp_val >= length) {
+                                right_docs.push_back(doc_id);
+                                //rightmost_doc = doc_id;
+                                //rightmost_found = true;
+                                //break;
+                            }
+                        }
+                    }
+                    // Make sure we have found both documents in 
+                    // both directions, and they end with same doc
+                    assert((left_docs.size() && right_docs.size()));
+                    assert ((left_docs.back() == right_docs.back()));
+
+                    // Remove the last document from one of the vectors
+                    left_docs.pop_back();
+
+                    // Output the leftmost/rightmost nodes along with
+                    // nodes underneath with hit
+                    std::string output_str = "{";
+                    for (auto x: left_docs)
+                        output_str += std::to_string(x) + ",";
+                    for (int i = right_docs.size()-1; i >= 0; i--)
+                        output_str += std::to_string(right_docs[i]) + ",";
+
+                    // Remove comma and close bracket
+                    output_str.pop_back();
+                    output_str += "} ";
+                    listings_fd << output_str;
+            };
+
             // lambda to print out the document listing
             auto process_profile = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end) {
                     bool leftmost_found = false, rightmost_found = false;
@@ -304,7 +428,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                             listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
 
                             length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
-                            process_profile(curr_profile, length, use_end);
+                            process_profile_with_subtree(curr_profile, length, use_end);
                             end_pos_of_match = i;
 
                             start = 0; end = this->bwt.size();
@@ -346,7 +470,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
 
                         length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
-                        process_profile(curr_profile, length, use_end);
+                        process_profile_with_subtree(curr_profile, length, use_end);
                         end_pos_of_match = i;
 
                         start = 0; end = this->bwt.size();
@@ -395,7 +519,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
                 listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
                 length = std::min((size_t) MAXLCPVALUE, end_pos_of_match+1);
-                process_profile(curr_profile, length, use_end);
+                process_profile_with_subtree(curr_profile, length, use_end);
                 listings_fd << "\n";
 
                 // std::exit(1);
