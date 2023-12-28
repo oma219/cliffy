@@ -42,14 +42,13 @@ int build_main(int argc, char** argv) {
     build_opts.output_ref.assign(build_opts.output_prefix + ".fna");
     print_build_status_info(&build_opts);
 
-    // Build the input reference file, and bitvector labeling the end for each doc
+    // build the input reference file, and bitvector labeling the end for each doc
     STATUS_LOG("build_main", "building the reference file based on file-list");
     auto start = std::chrono::system_clock::now();
-    
     RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
-    // Make sure that document numbers can be store in 2 bytes, and 
+    // make sure that document numbers can be store in 2 bytes, and 
     // it makes sense with respect to k
     if (ref_build.num_docs >= MAXDOCS)
         FATAL_ERROR("An index cannot be build over %ld documents, "
@@ -58,32 +57,31 @@ int build_main(int argc, char** argv) {
         && ref_build.num_docs < build_opts.numcolsintable)
         FATAL_ERROR("the k provided is larger than the number of documents.");
 
-    // Check and make sure the document to extract is a valid id
+    // check and make sure the document to extract is a valid id
     if (build_opts.doc_to_extract > ref_build.num_docs) {
         FATAL_ERROR("Document #%d was requested to be extracted,"
                     " but there are only %d documents", build_opts.doc_to_extract, ref_build.num_docs);
     }
 
-    // Determine the paths to the BigBWT executables
+    // determine the paths to the BigBWT executables
     HelperPrograms helper_bins;
     if (!std::getenv("PFPDOC_BUILD_DIR")) {FATAL_ERROR("Need to set PFPDOC_BUILD_DIR environment variable.");}
     helper_bins.build_paths((std::string(std::getenv("PFPDOC_BUILD_DIR")) + "/bin/").data());
     helper_bins.validate();
 
-    // Parse the input text with BigBWT, and load it into pf object
+    // parse the input text with BigBWT
     STATUS_LOG("build_main", "generating the prefix-free parse for given reference");
     start = std::chrono::system_clock::now();
-
     run_build_parse_cmd(&build_opts, &helper_bins);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
+    // load the parse and dictionary into pf object
     STATUS_LOG("build_main", "building the parse and dictionary objects");
     start = std::chrono::system_clock::now();
-
     pf_parsing pf(build_opts.output_ref, build_opts.pfp_w);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
-    // Print info regarding the compression scheme being used
+    // print info regarding the compression scheme being used
     std::cerr << "\n";
     if (build_opts.use_taxcomp)
         FORCE_LOG("build_main", "taxonomic compression of the doc profiles will be used");
@@ -92,10 +90,7 @@ int build_main(int argc, char** argv) {
     else   
         FORCE_LOG("build_main", "no compression scheme will be used for the doc profiles");
 
-    // Builds the BWT, SA, LCP, and document array profiles and writes to a file
-    // STATUS_LOG("build_main", "building bwt and doc profiles based on pfp");
-    // start = std::chrono::system_clock::now();
-
+    // builds the BWT, SA, LCP, and document array profiles and writes to a file
     size_t num_runs = 0;
     if (!build_opts.use_two_pass) {
         pfp_lcp lcp(build_opts.use_heuristics, build_opts.doc_to_extract, build_opts.use_taxcomp, build_opts.use_topk, 
@@ -108,9 +103,8 @@ int build_main(int argc, char** argv) {
                                  build_opts.numcolsintable);
         num_runs = lcp.total_num_runs;
     }
-    // DONE_LOG((std::chrono::system_clock::now() - start));
 
-    // Print stats before closing out
+    // print stats before closing out
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
     FORCE_LOG("build_main", "finished: build time (s) = %.2f", build_time.count());
     std::cerr << "\n";

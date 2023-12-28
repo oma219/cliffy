@@ -1,6 +1,8 @@
 /*
  * File: pfp_lcp_doc_two_pass.hpp
- * Description: ....
+ * Description: Header file containing the two-pass 
+ *              construction algorithm for the document
+ *              array profiles.
  * Date: September 17th, 2022
  */
 
@@ -45,27 +47,23 @@ typedef struct
     size_t lcp_i = 0;
 } temp_data_entry_t;
 
+// struct for each phrase suffix
+typedef struct
+{
+    // this should be safe since the first entry of sa is 
+    // always the dollarsign used to compute the sa
+    size_t i = 0; 
+    size_t phrase = 0;
+    size_t suffix_length = 0;
+    int_da sn = 0;
+    uint8_t bwt_char = 0;
+} phrase_suffix_t;
+
 class pfp_lcp_doc_two_pass {
     public:
-        pf_parsing& pf;
-        std::vector<size_t> min_s; // Value of the minimum lcp_T in each run of BWT_T
-        std::vector<size_t> pos_s; // Position of the minimum lcp_T in each run of BWT_T
-
-        uint8_t head; // character of current BWT run
-        size_t length = 0; // length of the current BWT run
-
-        bool rle; // run-length encode the BWT
-        bool use_taxcomp = false;
-        bool use_topk = false; 
-
         size_t total_num_runs = 0;
-        size_t NUMCOLSFORTABLE = 0; 
 
-        size_t tmp_file_size = 0;
-        size_t max_dap_records = 0;
-        size_t max_lcp_records = 0;
-
-        pfp_lcp_doc_two_pass(pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, 
+    pfp_lcp_doc_two_pass(pf_parsing &pfp_, std::string filename, RefBuilder* ref_build, 
                             std::string temp_prefix, size_t tmp_size, bool taxcomp, bool topk, 
                             size_t num_cols, bool rle_ = true) : 
                 pf(pfp_),
@@ -325,40 +323,51 @@ class pfp_lcp_doc_two_pass {
         std::cerr << "\n";
         FORCE_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld", 
                   j, total_num_runs, total_tmp_used); 
-   }
+    }
 
     ~pfp_lcp_doc_two_pass() {
-        // Deallocate memory for predecessor table
+        // deallocate memory for predecessor table
         for (size_t i = 0; i < 256; i++)
             delete[] predecessor_max_lcp[i];
         delete[] predecessor_max_lcp;
 
-        // Unmap the temp data file
+        // unmap the temp data file
         munmap(mmap_lcp_inter, tmp_file_size);
         munmap(mmap_dap_inter, tmp_file_size);
         close(dap_inter_fd); close(lcp_inter_fd);
     }
 
     private:
-        typedef struct
-        {
-            size_t i = 0; // This should be safe since the first entry of sa is always the dollarsign used to compute the sa
-            size_t phrase = 0;
-            size_t suffix_length = 0;
-            int_da sn = 0;
-            uint8_t bwt_char = 0;
-        } phrase_suffix_t;
+        /*********************************/ 
+        /* Private instance variables
+        /*********************************/
+        pf_parsing& pf;
+        std::vector<size_t> min_s; // Value of the minimum lcp_T in each run of BWT_T
+        std::vector<size_t> pos_s; // Position of the minimum lcp_T in each run of BWT_T
+
+        uint8_t head; // character of current BWT run
+        size_t length = 0; // length of the current BWT run
+
+        bool rle; // run-length encode the BWT
+        bool use_taxcomp = false;
+        bool use_topk = false; 
+
+        size_t NUMCOLSFORTABLE = 0; 
+
+        size_t tmp_file_size = 0;
+        size_t max_dap_records = 0;
+        size_t max_lcp_records = 0;
 
         FILE *lcp_file; // LCP array
         FILE *bwt_file; // BWT (run characters if using rle)
         FILE *bwt_file_len; // lengths file is using rle
-        FILE *ssa_file; // start of suffix array sample
-        FILE *esa_file; // end of suffix array sample
+        FILE *ssa_file; // start of run: suffix array sample
+        FILE *esa_file; // end of run: suffix array sample
 
-        FILE *sdap_file; // start of document array profiles
-        FILE *edap_file; // end of document array profiles
-        FILE *sdap_tax, *edap_tax;
-        FILE *sdap_overtax, *edap_overtax;
+        FILE *sdap_file; // start of run: document array profiles
+        FILE *edap_file; // end of run: document array profiles
+        FILE *sdap_tax, *edap_tax; // start or end when taxonomically compressing DAP
+        FILE *sdap_overtax, *edap_overtax; // overflow file when taxonomically compressing DAP
 
         size_t num_docs = 0;
         size_t j = 0;
@@ -372,30 +381,34 @@ class pfp_lcp_doc_two_pass {
 
         size_t num_dap_temp_data = 0;
         size_t num_lcp_temp_data = 0;
-
-        // matrix of <ch, doc> pairs that keep track of which pairs 
-        // we have seen so far. This is used when we initialize
-        // the curr_da_profile with the max lcps with previous lcps
+        
+        /***********************************************************/
+        /* matrix of <ch, doc> pairs that keep track of which pairs 
+        /* we have seen so far. This is used when we initialize
+        /* the curr_da_profile with the max lcps with previous lcps
+        /***********************************************************/
         std::vector<std::vector<bool>> ch_doc_encountered;
 
-        // Data-structure to store the max LCP with respect to all previous <ch, doc> pairs
+        /* Data-structure to store the max LCP with respect to all previous <ch, doc> pairs */
         uint16_t** predecessor_max_lcp;
 
-        // This structure contains the raw document array profile values. The 
-        // ith continguous group of num_doc integers is a profile for lcp_queue[i]
+        /***********************************************************/
+        /* This structure contains the raw document array profile 
+        /* values. The ith continguous group of num_doc integers is 
+        /* a profile for lcp_queue[i]
+        /***********************************************************/
         std::deque<size_t> lcp_queue_profiles;
 
-        // Variables are used for the intermediate file
+        /* Variables are used for the intermediate file */
         int dap_inter_fd, lcp_inter_fd;
         struct stat file_info_dap_inter;
         struct stat file_info_lcp_inter;
         char* mmap_dap_inter;
         char* mmap_lcp_inter;
 
-        /*
-         * These methods are focused on the document array construction
-         * portions of code.
-         */
+        /***********************************************************/
+        /* Section 1: Document Array Profiles related methods
+        /***********************************************************/
         void initialize_index_files(std::string filename, std::string temp_prefix) {
             /* opening output files for data-structures like  LCP, SA, BWT */
 
@@ -868,12 +881,9 @@ class pfp_lcp_doc_two_pass {
             return curr_ptr_pos;
         }
 
-        /* 
-         * These methods are focused on the non-document array 
-         * portions of the constructions like the BWT, LCP, and
-         * Suffix Array.
-         */
-
+        /***********************************************************/
+        /* Section 2: BWT, LCP, and SA construction related methods
+        /***********************************************************/
         inline bool inc(phrase_suffix_t& s){
             s.i++;
             if (s.i >= pf.dict.saD.size())
