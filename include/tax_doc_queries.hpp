@@ -145,8 +145,22 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     std::vector<uint64_t> right_docs;
                     size_t tuple_num = 0;
 
+                    // std::cout << "length: " << length << std::endl;
+                    // std::cout << "profile: ";
+                    // for (auto x: profile)
+                    //     std::cout << x << " ";
+                    // std::cout << "\n";
+
                     // Iterates through the main table ...
-                    while ((!left_done || !right_done) && (tuple_num < (this->num_cols * 4))) {                        
+                    while ((!left_done || !right_done) && (tuple_num < (this->num_cols * 4))) {   
+
+                        // Checks if the LCP value has reached the max, and
+                        // the monotonic increases have ended
+                        if (profile[tuple_num] == MAXLCPVALUE)
+                            left_done = true;
+                        if (profile[tuple_num+2] == MAXLCPVALUE)
+                            right_done = true;
+
                         // Check if increases in either direction are still going, and 
                         // lcp is greater than query length
                         if (!left_done && profile[tuple_num+1] >= length) {
@@ -155,13 +169,6 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         if (!right_done && profile[tuple_num+3] >= length) {
                             right_docs.push_back(profile[tuple_num+2]);
                         }
-
-                        // Checks if the LCP value has reached the max, and
-                        // the monotonic increases have ended
-                        if (profile[tuple_num+1] == MAXLCPVALUE)
-                            left_done = true;
-                        if (profile[tuple_num+3] == MAXLCPVALUE)
-                            right_done = true;
                         tuple_num += 4;
                     }
 
@@ -179,9 +186,11 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     size_t of_pos = profile[this->num_cols * 4];
 
                     // Make sure that both directions are done based on overflow ptr
-                    if (of_pos == 0)
+                    if (of_pos == 0) {
+                        left_done = true;
+                        right_done = true;
                         assert((left_done && right_done));
-
+                    }
                     // std::cout << leftmost_found << " " << rightmost_found << std::endl;
                     // std::cout << of_pos << std::endl;
                     
@@ -246,6 +255,15 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
                     // Remove the last document from one of the vectors
                     left_docs.pop_back();
+
+                    // std::cout << "left docs: ";
+                    // for (auto x: left_docs)
+                    //     std::cout << x << " ";
+                    // std::cout << "\n";
+                    // std::cout << "right docs: ";
+                    // for (auto x: right_docs)
+                    //     std::cout << x << " ";
+                    // std::cout << "\n";
 
                     // Output the leftmost/rightmost nodes along with
                     // nodes underneath with hit
