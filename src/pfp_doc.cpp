@@ -127,10 +127,11 @@ int run_main(int argc, char** argv) {
         doc_queries doc_queries_obj (run_opts.ref_file);
 
         // query the doc_profiles with the given reads
-        STATUS_LOG("run_main", "processing the patterns");
+        std::cerr << "\n";
+        STATUS_LOG("query_main", "processing the patterns");
 
         auto start = std::chrono::system_clock::now();
-        doc_queries_obj.query_profiles(run_opts.pattern_file);
+        doc_queries_obj.query_profiles(run_opts.pattern_file, run_opts.output_prefix);
         DONE_LOG((std::chrono::system_clock::now() - start));
         
         // write index to disk
@@ -354,6 +355,7 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
         {"help",      no_argument, NULL,  'h'},
         {"ref",   required_argument, NULL,  'r'},
         {"pattern",       required_argument, NULL,  'p'},
+        {"output",       required_argument, NULL,  'o'},
         {"write",   no_argument, NULL,  's'},
         {"length",   required_argument, NULL,  'l'},
         {"taxcomp",   no_argument, NULL,  't'},
@@ -364,11 +366,12 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hr:p:sl:tkc:", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
             case 'p': opts->pattern_file.assign(optarg); break;
+            case 'o': opts->output_prefix.assign(optarg); break;
             case 'l': opts->read_length = std::atoi(optarg); break;
             case 's': opts->write_to_file = true; break;
             case 't': opts->use_taxcomp = true; break;
@@ -443,7 +446,8 @@ int pfpdoc_run_usage() {
     std::fprintf(stderr, "Options:\n");
     std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
     std::fprintf(stderr, "\t%-18s%-10spath to the input reference file\n", "-r, --ref", "[arg]");
-    std::fprintf(stderr, "\t%-18s%-10spath to the pattern file\n\n", "-p, --pattern", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10spath to the pattern file\n", "-p, --pattern", "[arg]");
+    std::fprintf(stderr, "\t%-18s%-10soutput path prefix\n\n", "-o, --output", "[arg]");
 
     std::fprintf(stderr, "\t%-28swrite data-structures to disk\n", "-s, --write");
     std::fprintf(stderr, "\t%-18s%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l, --length", "[arg]");
