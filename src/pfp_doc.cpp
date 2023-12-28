@@ -305,7 +305,12 @@ void print_build_status_info(PFPDocBuildOptions* opts) {
     std::fprintf(stderr, "\tOutput ref path: %s\n", opts->output_ref.data());
     std::fprintf(stderr, "\tPFP window size: %d\n", opts->pfp_w);
     std::fprintf(stderr, "\tInclude rev-comp?: %d\n", opts->use_rcomp);
-    std::fprintf(stderr, "\tUse heuristics?: %d\n\n", opts->use_heuristics);
+    if (opts->use_two_pass)
+        std::fprintf(stderr, "\tBuild Algorithm: Two-Pass\n\n");
+    else {
+        std::fprintf(stderr, "\tBuild Algorithm: One-Pass\n");
+        std::fprintf(stderr, "\tUse heuristics?: %d\n\n", opts->use_heuristics);
+    }
 }
 
 void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
