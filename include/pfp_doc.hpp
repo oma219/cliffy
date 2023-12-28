@@ -27,7 +27,7 @@
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n");} while (0)
 
-// Defintions
+/* Definitions */
 #define PFPDOC_VERSION "1.0.8"
 
 #define DOCWIDTH 2
@@ -157,6 +157,7 @@ struct PFPDocRunOptions {
     public:
         std::string ref_file = "";
         std::string pattern_file = "";
+        std::string output_prefix = "";
         int read_length = 0;
         int num_cols = -1;
         bool write_to_file = false;
@@ -170,6 +171,11 @@ struct PFPDocRunOptions {
         // check the input files
         if (!is_file(ref_file) || !is_file(pattern_file))
             FATAL_ERROR("At least one of the input files is not valid.");
+
+        // check that output prefix is valid
+        std::filesystem::path p (output_prefix);
+        if (!is_dir(p.parent_path().string()))
+            FATAL_ERROR("output path prefix is not in a valid directory."); 
         
         // check that the upper bound on the read length is positive
         if (read_length < 0)
