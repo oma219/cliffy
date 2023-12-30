@@ -43,7 +43,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
         {
             // load the BWT
-            STATUS_LOG("build_profiles", "loading the bwt of the input text");
+            STATUS_LOG("query_main", "loading the bwt of the input text");
             auto start = std::chrono::system_clock::now();
 
             std::string bwt_fname = filename + ".bwt";
@@ -55,15 +55,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             ri::ulint n = this->bwt.size();
             size_t log_r = bitsize(uint64_t(this->r));
             size_t log_n = bitsize(uint64_t(this->bwt.size()));
-            FORCE_LOG("build_profiles", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
+            FORCE_LOG("query_main", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
 
             // check file sizes and make sure it is valid
             check_doc_array_files(filename + ".sdap");
             check_doc_array_files(filename + ".edap");
-            FORCE_LOG("build_profiles", "number of documents: d = %ld" , num_docs);
+            FORCE_LOG("query_main", "number of documents: d = %ld" , num_docs);
            
             // load the profiles for starts and ends
-            STATUS_LOG("build_profiles", "loading the document array profiles");
+            STATUS_LOG("query_main", "loading the document array profiles");
             start = std::chrono::system_clock::now();
             
             read_doc_profiles(start_doc_profiles, filename + ".sdap", 
@@ -77,9 +77,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         void query_profiles(std::string pattern_file, std::string output_prefix){
             /* Takes in a file of reads, and lists all the documents containing the read */
-        
+
             // open output/input files
-            std::ofstream listings_fd (pattern_file + ".listings");
+            std::ofstream listings_fd (output_prefix + ".listings");
             gzFile fp; kseq_t* seq;
             fp = gzopen(pattern_file.data(), "r"); 
 
@@ -307,6 +307,44 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             FORCE_LOG("serialize", "finished writing index to *.docprofiles and *.docprofiles.bwt files");
             
             return written_bytes;
+        }
+
+        void build_ftab(std::string output_ref) {
+            /* build the f_tab and store it in the *.fna.ftab file */
+
+            // table to convert 2-bits into a character (00, 01, 10, 11)
+            char nuc_tab[] = {'A', 'C', 'T', 'G'}; 
+
+            // initialize some variables
+            size_t num_entries = std::pow(FTAB_ALPHABET_SIZE, FTAB_ENTRY_LENGTH);
+            std::vector<size_t> index_vec(FTAB_ENTRY_LENGTH) ; 
+            std::iota(index_vec.begin(), index_vec.end(), 0); 
+
+            // iterate through all possible 10-mer in dictionary
+            for (size_t loop_index = 0; loop_index < num_entries; loop_index++) {
+                std::string curr_seq(FTAB_ENTRY_LENGTH, '*');
+
+                // generates current 10-mer by converting every 2-bits into a character
+                std::transform(index_vec.begin(), index_vec.end(), curr_seq.begin(),
+                               [&] (size_t pos) {
+                                    uint8_t code = FTAB_GRAB_CODE(loop_index, pos);
+                                    assert(code <= 3);
+                                    return nuc_tab[code];});
+                
+                if (m.count(curr_seq) == 0)
+                    m[curr_seq] = 1;
+                else
+                    FATAL_ERROR("Repeat ...");
+                
+                std::cout << curr_seq << std::endl;
+                                                 
+            }
+
+
+
+            std::cout << "\n\n";
+            std::cout << output_ref << std::endl;
+            std::cout << "hello there " << std::endl;
         }
 
     private:

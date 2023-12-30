@@ -13,6 +13,7 @@
 #include <iostream>
 #include <filesystem>
 #include <vector>
+#include <cmath>
 
 /* Useful MACROs */
 #define FATAL_ERROR(...) do {std::fprintf(stderr, "\n\033[31mError: \033[m"); std::fprintf(stderr, __VA_ARGS__);\
@@ -26,6 +27,9 @@
 #define FORCE_LOG(func, ...)  do {std::fprintf(stderr, "\033[32m[%s] \033[m", func); \
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n");} while (0)
+#define FORCE_LOG_IMPORT(func, ...)  do {std::fprintf(stderr, "\033[34m[%s] \033[m", func); \
+                                  std::fprintf(stderr, __VA_ARGS__); \
+                                  std::fprintf(stderr, "\n");} while (0)
 
 /* Definitions */
 #define PFPDOC_VERSION "1.0.8"
@@ -34,10 +38,14 @@
 #define MAXQUEUELENGTH 1000000
 #define MAXLCPVALUE 65535 // 2^16 - 1
 #define MAXDOCS 65535
+#define FTAB_ENTRY_LENGTH 10
+#define FTAB_ALPHABET_SIZE 4
 
 #define AVX2_PRESENT __AVX2__ 
 #define AVX512BW_PRESENT __AVX512BW__ 
 
+/* MACROS related to FTAB creation */
+#define FTAB_GRAB_CODE(num, pos) (((0x3 << (pos * 2)) & num) >> (pos * 2))
 
 /* Function declations */
 int pfpdoc_usage();

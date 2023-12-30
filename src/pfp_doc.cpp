@@ -84,11 +84,11 @@ int build_main(int argc, char** argv) {
     // print info regarding the compression scheme being used
     std::cerr << "\n";
     if (build_opts.use_taxcomp)
-        FORCE_LOG("build_main", "taxonomic compression of the doc profiles will be used");
+        FORCE_LOG_IMPORT("build_main", "taxonomic compression of the doc profiles will be used");
     else if (build_opts.use_topk)
-        FORCE_LOG("build_main", "top-k compression of the doc profile will be used");
+        FORCE_LOG_IMPORT("build_main", "top-k compression of the doc profile will be used");
     else   
-        FORCE_LOG("build_main", "no compression scheme will be used for the doc profiles");
+        FORCE_LOG_IMPORT("build_main", "no compression scheme will be used for the doc profiles");
 
     // builds the BWT, SA, LCP, and document array profiles and writes to a file
     size_t num_runs = 0;
@@ -103,8 +103,21 @@ int build_main(int argc, char** argv) {
                                  build_opts.numcolsintable);
         num_runs = lcp.total_num_runs;
     }
+    std::cerr << "\n";
 
-    // print stats before closing out
+    // build the f_tab by building query object
+    FORCE_LOG_IMPORT("build_main", "building ftab to speed-up querying");
+    if (!build_opts.use_taxcomp && !build_opts.use_topk){
+        doc_queries doc_queries_obj(build_opts.output_ref);
+        doc_queries_obj.build_ftab(build_opts.output_ref);
+    } else if (build_opts.use_taxcomp) {
+        FATAL_ERROR("Not implemented yet ...");
+    } else if (build_opts.use_topk) {
+        FATAL_ERROR("Not implemented yet ...");
+    }
+    std::cerr << "\n";
+
+    // print out full time
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
     FORCE_LOG("build_main", "finished: build time (s) = %.2f", build_time.count());
     std::cerr << "\n";
@@ -492,6 +505,18 @@ int pfpdoc_usage() {
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
     std::fprintf(stderr, "\033[1m\033[31m\npfp-doc version: %s\033[m\033[0m\n", PFPDOC_VERSION);
+
+    // std::map<std::string, int> m{{"CPU", 10}, {"GPU", 15}, {"RAM", 20}};
+ 
+    // m["CPU"] = 25; // update an existing value
+    // m["SSD"] = 30; // insert a new value
+    // m["CPU"] = 25;
+
+    // std::cout << m.count("CPU") << " " << m.count("ABC") << std::endl;
+    // std::cout << m.size() << std::endl;
+
+    // std::exit(1);
+
 
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 

@@ -303,6 +303,7 @@ class pfp_lcp_doc_two_pass {
         // close output files
         fclose(ssa_file); fclose(esa_file);
         fclose(bwt_file);
+        fclose(bwt_file_len);
         fclose(lcp_file);
 
         // close the approriate dap files
@@ -319,8 +320,6 @@ class pfp_lcp_doc_two_pass {
 
         // print out statistics
         size_t total_tmp_used = (num_lcp_temp_data * TEMPDATA_RECORD) + (num_dap_temp_data * DOCWIDTH);
-
-        std::cerr << "\n";
         FORCE_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld", 
                   j, total_num_runs, total_tmp_used); 
     }
