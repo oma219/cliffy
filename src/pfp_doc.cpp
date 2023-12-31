@@ -108,8 +108,21 @@ int build_main(int argc, char** argv) {
     // build the f_tab by building query object
     FORCE_LOG_IMPORT("build_main", "building ftab to speed-up querying");
     if (!build_opts.use_taxcomp && !build_opts.use_topk){
+        // build query object, and then build ftab index
         doc_queries doc_queries_obj(build_opts.output_ref);
-        doc_queries_obj.build_ftab(build_opts.output_ref);
+        std::cerr << "\n";
+
+        STATUS_LOG("build_main", "generating ftab for all possible %d-mers", FTAB_ENTRY_LENGTH);
+        start = std::chrono::system_clock::now();
+        size_t num_found = 0, num_not_found = 0;
+
+        std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab(build_opts.output_ref);
+        DONE_LOG((std::chrono::system_clock::now() - start));
+
+        FORCE_LOG_IMPORT("build_main", 
+                         "num of %d-mers found = %d, num of %d-mers NOT found = %d",
+                         FTAB_ENTRY_LENGTH, num_found, FTAB_ENTRY_LENGTH, num_not_found);
+
     } else if (build_opts.use_taxcomp) {
         FATAL_ERROR("Not implemented yet ...");
     } else if (build_opts.use_topk) {

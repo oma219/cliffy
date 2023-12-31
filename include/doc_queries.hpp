@@ -309,7 +309,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             return written_bytes;
         }
 
-        void build_ftab(std::string output_ref) {
+        std::pair<size_t, size_t> build_ftab(std::string output_ref) {
             /* build the f_tab and store it in the *.fna.ftab file */
 
             // table to convert 2-bits into a character (00, 01, 10, 11)
@@ -319,8 +319,34 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             size_t num_entries = std::pow(FTAB_ALPHABET_SIZE, FTAB_ENTRY_LENGTH);
             std::vector<size_t> index_vec(FTAB_ENTRY_LENGTH) ; 
             std::iota(index_vec.begin(), index_vec.end(), 0); 
+            size_t ftab_file_size = num_entries * FTAB_ENTRY_SIZE;
 
+            // create a memory-mapped file for writing the ftab
+            mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+            struct stat ftab_file_info;
+            char* mmap_ftab;
+
+            std::string outfile = output_ref + std::string(".ftab");
+            int ftab_fd = open(outfile.c_str(), O_RDWR | O_CREAT | O_TRUNC, mode);
+            ftruncate(ftab_fd, ftab_file_size);
+
+            if (ftab_fd == -1)
+                FATAL_ERROR("issue occurred when opening up ftab file.");
+            if (fstat(ftab_fd, &ftab_file_info) == -1)
+                FATAL_ERROR("issue occurred when checking file size on ftab file.");
+
+            mmap_ftab = (char*) mmap(NULL,
+                                     ftab_file_size,
+                                     PROT_READ | PROT_WRITE, 
+                                     MAP_SHARED, 
+                                     ftab_fd, 0);
+            assert(mmap_ftab != MAP_FAILED);
+
+            // DEBUG: open file and store results for checking
+            std::ofstream debug_fd(output_ref + ".ftab.debug.txt");
+                      
             // iterate through all possible 10-mer in dictionary
+            size_t num_not_found = 0, num_found = 0;
             for (size_t loop_index = 0; loop_index < num_entries; loop_index++) {
                 std::string curr_seq(FTAB_ENTRY_LENGTH, '*');
 
@@ -331,20 +357,109 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                                     assert(code <= 3);
                                     return nuc_tab[code];});
                 
-                if (m.count(curr_seq) == 0)
-                    m[curr_seq] = 1;
-                else
-                    FATAL_ERROR("Repeat ...");
-                
-                std::cout << curr_seq << std::endl;
-                                                 
+                // initialize variables for backward search
+                size_t start = 0, end = this->bwt.size();
+                bool not_found = false;
+
+                // initialize variables that are need to grab correct profile 
+                uint8_t curr_prof_ch = 0;
+                size_t curr_prof_pos = 0, num_LF_steps = 0;
+                bool use_start = false, use_end = false;
+
+                // perform backward search for current 10-mer
+                int j = (FTAB_ENTRY_LENGTH-1);
+                for (; j>=0; j--) {
+                    // get character, keep in mind it is already capitalized
+                    uint8_t next_ch = curr_seq[j];
+
+                    // identify the run # for start and end
+                    size_t num_ch_before_start = this->bwt.rank(start, next_ch);
+                    size_t num_ch_before_end = this->bwt.rank(end, next_ch);
+                    size_t start_run = this->bwt.run_of_position(start);
+                    size_t end_run = this->bwt.run_of_position(end-1);
+
+                    // range spans run boundary, so there are different BWT chars
+                    if (start_run != end_run) {
+                        // bwt range is going to be empty, so we didn't find it ...
+                        if (num_ch_before_start == num_ch_before_end) {
+                            not_found = true;
+                            break;
+                        }
+
+                        // grab any profile with next_ch in BWT (policy: choose first one)
+                        curr_prof_ch = next_ch;
+                        curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
+                        num_LF_steps = 0;
+                        use_start = false; use_end = false;
+
+                        // if current start position is a run of next_ch characters,
+                        // then we want to use the profile at the of run, otherwise,
+                        // use the profile at the beginning of a run
+                        if (this->bwt[start] == next_ch)
+                            use_end = true;
+                        else
+                            use_start = true;
+                    }
+                    // range is within a BWT run, but wrong character
+                    else if(this->bwt[start] != next_ch) {
+                        not_found = true;
+                        break;
+                    }
+                    // range is within BWT run, and is correct character
+                    else {
+                        num_LF_steps++;
+                    }
+
+                    // perform backward step
+                    start = num_ch_before_start + this->F[next_ch];
+                    end = num_ch_before_end + this->F[next_ch];
+                }
+
+                // keep track of how many are not found
+                if (not_found) {
+                    num_not_found++;  
+                    start = 1; end = 0; // signal that not found
+                    curr_prof_ch = 0; curr_prof_pos = 0;
+                    num_LF_steps = 0;
+                } else {
+                    num_found++;
+                }
+
+                // write out the first three elements of ftab entry
+                size_t start_pos = loop_index * FTAB_ENTRY_SIZE;
+                assert(sizeof(size_t) == 8);
+
+                for (int k = 0; k < sizeof(size_t); k++) {
+                    /* 1. BWT range start position (little-endian) */
+                    mmap_ftab[start_pos + k] = ((0xFF << (8*k)) & start) >> (8*k);
+                    /* 2. BWT range end position (little-endian) */
+                    mmap_ftab[start_pos + sizeof(size_t) + k] = ((0xFF << (8*k)) & end) >> (8*k);
+                    /* 3. Current profile position (little-endian) */
+                    mmap_ftab[start_pos + (2*sizeof(size_t)) + k] = ((0xFF << (8*k)) & curr_prof_pos) >> (8*k);
+                }
+
+                // write the remaining two elements of ftab entry
+                assert(num_LF_steps < 10);
+
+                /* 4. Number of LF Steps */
+                mmap_ftab[start_pos + (3*sizeof(size_t))] = (0xFF & num_LF_steps);
+
+                /* 5. BWT character */
+                mmap_ftab[start_pos + (3*sizeof(size_t)) + 1] = (0xFF & curr_prof_ch);
+
+                debug_fd << curr_seq << "," << start 
+                                     << "," << end 
+                                     << "," << curr_prof_pos 
+                                     << "," << num_LF_steps 
+                                     << "," << curr_prof_ch << std::endl;
             }
 
+            // unmap the ftab and debug files
+            munmap(mmap_ftab, ftab_file_size);
+            close(ftab_fd); 
+            debug_fd.close();
 
-
-            std::cout << "\n\n";
-            std::cout << output_ref << std::endl;
-            std::cout << "hello there " << std::endl;
+            return std::make_pair(num_found, num_not_found);
         }
 
     private:
