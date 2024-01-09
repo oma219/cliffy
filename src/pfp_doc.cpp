@@ -387,12 +387,13 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
         {"taxcomp",   no_argument, NULL,  't'},
         {"top-k",   no_argument, NULL,  'k'},
         {"num-col",   required_argument, NULL,  'c'},
+        {"ftab", no_argument,     NULL, 'f'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:f", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
@@ -403,6 +404,7 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
             case 't': opts->use_taxcomp = true; break;
             case 'k': opts->use_topk = true; break;
             case 'c': opts->num_cols = std::atoi(optarg); break;
+            case 'f': opts->use_ftab = true; break;
             default: pfpdoc_run_usage(); std::exit(1);
         }
     }
@@ -481,6 +483,8 @@ int pfpdoc_run_usage() {
     std::fprintf(stderr, "\t%-28sload document array that is 'taxonomic' compressed (default: false)\n", "-t, --taxcomp");
     std::fprintf(stderr, "\t%-28sload document array that is 'top-k' compressed (default: false)\n", "-k, --top-k");
     std::fprintf(stderr, "\t%-18s%-10snumber of columns used in main table\n\n", "-c, --num-col", "[arg]");
+
+    std::fprintf(stderr, "\t%-28suse ftab to speed up querying (default: false)\n\n", "-f, --ftab");
     
     return 0;
 }
@@ -518,18 +522,6 @@ int pfpdoc_usage() {
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
     std::fprintf(stderr, "\033[1m\033[31m\npfp-doc version: %s\033[m\033[0m\n", PFPDOC_VERSION);
-
-    // std::map<std::string, int> m{{"CPU", 10}, {"GPU", 15}, {"RAM", 20}};
- 
-    // m["CPU"] = 25; // update an existing value
-    // m["SSD"] = 30; // insert a new value
-    // m["CPU"] = 25;
-
-    // std::cout << m.count("CPU") << " " << m.count("ABC") << std::endl;
-    // std::cout << m.size() << std::endl;
-
-    // std::exit(1);
-
 
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 
