@@ -173,6 +173,7 @@ struct PFPDocRunOptions {
         bool use_taxcomp = false;
         bool use_topk = false;
         bool use_ftab = false;
+        bool use_optimized = false;
     
     void validate() {
         /* checks arguments and makes sure they are valid files */

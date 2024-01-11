@@ -110,13 +110,12 @@ int build_main(int argc, char** argv) {
     if (!build_opts.use_taxcomp && !build_opts.use_topk){
         // build query object, and then build ftab index
         doc_queries doc_queries_obj(build_opts.output_ref);
-        std::cerr << "\n";
 
         STATUS_LOG("build_main", "generating ftab for all possible %d-mers", FTAB_ENTRY_LENGTH);
         start = std::chrono::system_clock::now();
         size_t num_found = 0, num_not_found = 0;
 
-        std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab(build_opts.output_ref);
+        std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab();
         DONE_LOG((std::chrono::system_clock::now() - start));
 
         FORCE_LOG_IMPORT("build_main", 
@@ -152,13 +151,15 @@ int run_main(int argc, char** argv) {
         // build the doc_queries object (load data-structures)
         doc_queries doc_queries_obj (run_opts.ref_file);
 
-        // query the doc_profiles with the given reads
-        std::cerr << "\n";
-        STATUS_LOG("query_main", "processing the patterns");
-
-        auto start = std::chrono::system_clock::now();
-        doc_queries_obj.query_profiles(run_opts.pattern_file, run_opts.output_prefix);
-        DONE_LOG((std::chrono::system_clock::now() - start));
+        // query reads, load ftab structure if we want to use it
+        if (run_opts.use_ftab) {
+            doc_queries_obj.load_ftab_from_file();
+            doc_queries_obj.query_profiles_with_ftab(run_opts.pattern_file, run_opts.output_prefix);
+        } else if (run_opts.use_optimized) {
+            doc_queries_obj.query_profiles_optimized(run_opts.pattern_file, run_opts.output_prefix);
+        } else {
+            doc_queries_obj.query_profiles(run_opts.pattern_file, run_opts.output_prefix);
+        }
         
         // write index to disk
         if (run_opts.write_to_file) {
@@ -388,12 +389,13 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
         {"top-k",   no_argument, NULL,  'k'},
         {"num-col",   required_argument, NULL,  'c'},
         {"ftab", no_argument,     NULL, 'f'},
+        {"optimized", no_argument, NULL, 'z'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:f", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:fz", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
@@ -405,6 +407,7 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
             case 'k': opts->use_topk = true; break;
             case 'c': opts->num_cols = std::atoi(optarg); break;
             case 'f': opts->use_ftab = true; break;
+            case 'z': opts->use_optimized = true; break;
             default: pfpdoc_run_usage(); std::exit(1);
         }
     }
@@ -484,7 +487,8 @@ int pfpdoc_run_usage() {
     std::fprintf(stderr, "\t%-28sload document array that is 'top-k' compressed (default: false)\n", "-k, --top-k");
     std::fprintf(stderr, "\t%-18s%-10snumber of columns used in main table\n\n", "-c, --num-col", "[arg]");
 
-    std::fprintf(stderr, "\t%-28suse ftab to speed up querying (default: false)\n\n", "-f, --ftab");
+    std::fprintf(stderr, "\t%-28suse ftab to speed up querying (default: false)\n", "-f, --ftab");
+    std::fprintf(stderr, "\t%-28suse optimized version of querying (default: false)\n\n", "-z, --optimized");
     
     return 0;
 }
