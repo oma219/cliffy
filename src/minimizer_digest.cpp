@@ -21,7 +21,7 @@ MinimizerDigest::MinimizerDigest(uint64_t k, uint64_t w): k(k), w(w), loaded_kme
     if (k > limit) {FATAL_ERROR("the small-window size provided is too large.");}
 
     // make sure the large window size is larger
-    ASSERT((w > k), "the large-window size cannot be smaller than small-window size.");
+    ASSERT((w >= k), "the large-window size cannot be smaller than small-window size.");
 
     // initialize the lookup table 
     for (size_t i = 0; i < UINT8_MAX; i++){
