@@ -20,15 +20,17 @@
 #include <vector>
 
 #define BITS_PER_CHAR 2
+#define KMER_TO_UINT8_CHAR(x) (char) ((x <= 2) ? (x+3) : x)
 
 struct MinimizerData {
     uint64_t pos;
     uint64_t val;
+    uint64_t hash_val;
 };
 
 class MinimizerDigest {
     public:
-        MinimizerDigest(uint64_t k, uint64_t w);
+        MinimizerDigest(uint64_t k, uint64_t w, bool lex_order=true, bool minimizer_alp=false);
 
         std::string compute_digest(std::string input_seq);
         uint64_t get_k() {return k;}
@@ -38,6 +40,8 @@ class MinimizerDigest {
         uint64_t w;
         uint8_t lookup_table[UINT8_MAX+1];
         uint64_t loaded_kmers;
+        bool lex_order;
+        bool minimizer_alp;
         std::vector<MinimizerData> queue;
 
         void update_lookup_table(char ch, uint8_t val);
