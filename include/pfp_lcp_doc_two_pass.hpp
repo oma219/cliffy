@@ -320,7 +320,7 @@ class pfp_lcp_doc_two_pass {
 
         // print out statistics
         size_t total_tmp_used = (num_lcp_temp_data * TEMPDATA_RECORD) + (num_dap_temp_data * DOCWIDTH);
-        FORCE_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld", 
+        STATS_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld", 
                   j, total_num_runs, total_tmp_used); 
     }
 

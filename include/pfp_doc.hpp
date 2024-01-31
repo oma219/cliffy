@@ -20,19 +20,31 @@
                               std::fprintf(stderr, "\n\n"); std::exit(1);} while(0)
 #define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\n\n\033[31mAssertion Failed:\033[m %s\n\n", msg); \
                                                    std::exit(1);}} while(0)
-#define STATUS_LOG(x, ...) do {std::fprintf(stderr, "\033[32m[%s] \033[0m", x); std::fprintf(stderr, __VA_ARGS__ ); \
+#define STATUS_LOG(x, ...) do {std::fprintf(stderr, "\033[32m[%s::log] \033[0m", TOOL_NAME); std::fprintf(stderr, __VA_ARGS__ ); \
                                std::fprintf(stderr, " ... ");} while(0)
 #define DONE_LOG(x) do {auto sec = std::chrono::duration<double>(x); \
                         std::fprintf(stderr, "done.  (%.3f sec)\n", sec.count());} while(0)
-#define FORCE_LOG(func, ...)  do {std::fprintf(stderr, "\033[32m[%s] \033[m", func); \
+#define FORCE_LOG(func, ...)  do {std::fprintf(stderr, "\033[32m[%s::log] \033[m", TOOL_NAME); \
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n");} while (0)
-#define FORCE_LOG_IMPORT(func, ...)  do {std::fprintf(stderr, "\033[34m[%s] \033[m", func); \
+#define STATS_LOG(func, ...)  do {std::fprintf(stderr, "\033[32m[%s::stats] \033[m", TOOL_NAME); \
+                                  std::fprintf(stderr, __VA_ARGS__); \
+                                  std::fprintf(stderr, "\n");} while (0)
+#define FORCE_LOG_IMPORT(func, ...)  do {std::fprintf(stderr, "\033[1m\033[32m[%s] \033[m", func); \
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n");} while (0)
 
+/* Debugging Macros */
+#define DEBUG 0
+#if DEBUG==1
+#define DEBUG_MSG(str) do { std::cout << str << std::endl; } while( false )
+#else
+#define DEBUG_MSG(str) 
+#endif
+
 /* Definitions */
 #define PFPDOC_VERSION "1.0.8"
+#define TOOL_NAME "cliffy"
 
 #define DOCWIDTH 2
 #define MAXQUEUELENGTH 1000000
@@ -128,21 +140,32 @@ struct PFPDocBuildOptions {
         bool use_two_pass = false;
         size_t tmp_size = 0;
 
+        bool use_minimizers = false;
+        bool use_dna_minimizers = false;
+        size_t small_window_l = 4;
+        size_t large_window_l = 11;
+
         void validate() {
             /* checks the arguments and make sure they are valid */
-            if (input_list.length() && !is_file(input_list)) // provided a file-list
+
+            // check if filelist is a valid file
+            if (input_list.length() && !is_file(input_list)) 
                 FATAL_ERROR("The provided file-list is not valid.");
             else if (input_list.length() == 0)
                 FATAL_ERROR("need to provide a file-list for processing.");
-
+            
+            // makes sure the output directory of files is valid
             std::filesystem::path p (output_prefix);
             if (!is_dir(p.parent_path().string()))
                 FATAL_ERROR("output path prefix is not in a valid directory."); 
             
             if (use_two_pass) {
+                // makes sure the output directory of temp files is valid
                 std::filesystem::path p (temp_prefix);
                 if (!is_dir(p.parent_path().string()))
                     FATAL_ERROR("output path prefix for temporary file is not valid.");
+
+                // makes sure the temp size is valid format, if so, initialize the tmp_size variable
                 if (tmp_size_str.length() == 0 || tmp_size_str.find("GB") == std::string::npos)
                     FATAL_ERROR("temporary file size argument needs to be in this form (e.g. 4GB)");
 
@@ -154,11 +177,21 @@ struct PFPDocBuildOptions {
                     FATAL_ERROR("top-k is not implemented yet with two-pass algorithm.");
             }
 
+            // can only use one type of compression
             if (use_taxcomp && use_topk)
                 FATAL_ERROR("taxonomic and top-k compression cannot be used together.");   
 
+            // can only extract documents if not using a compression strategy
             if (doc_to_extract > 0 && (use_taxcomp || use_topk)) 
-                FATAL_ERROR("cannot extract document array when using compression.");       
+                FATAL_ERROR("cannot extract document array when using compression.");     
+
+            // only one type of minimizer digestion can be used
+            if (use_minimizers && use_dna_minimizers)
+                FATAL_ERROR("cannot use both minimizer-alphabet and DNA-alphabet minimizers.");
+
+            // smaller window of minimizer scheme must be smaller than larger window
+            if (small_window_l > large_window_l)
+                FATAL_ERROR("small window of minimizer scheme cannot be larger than the large window.");
         }
 };
 

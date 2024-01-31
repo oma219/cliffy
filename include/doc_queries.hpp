@@ -56,7 +56,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             ri::ulint n = this->bwt.size();
             size_t log_r = bitsize(uint64_t(this->r));
             size_t log_n = bitsize(uint64_t(this->bwt.size()));
-            FORCE_LOG("query_main", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
+            STATS_LOG("query_main", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
 
             // check file sizes and make sure it is valid
             check_doc_array_files(filename + ".sdap");
@@ -74,7 +74,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                               output_path + ".edap.csv", num_profiles);
             DONE_LOG((std::chrono::system_clock::now() - start));
 
-            FORCE_LOG("query_main", "number of documents: d = %ld" , num_docs);
+            STATS_LOG("query_main", "number of documents: d = %ld" , num_docs);
             std::cerr << "\n";
         }
 

@@ -43,16 +43,17 @@ int build_main(int argc, char** argv) {
     print_build_status_info(&build_opts);
 
     // build the input reference file, and bitvector labeling the end for each doc
-    STATUS_LOG("build_main", "building the reference file based on file-list");
+    STATUS_LOG("cliffy::log", "building the reference file based on file-list");
     auto start = std::chrono::system_clock::now();
+
     RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
-    // make sure that document numbers can be store in 2 bytes, and 
+    // make sure that document numbers can be stored in 2 bytes, and 
     // it makes sense with respect to k
     if (ref_build.num_docs >= MAXDOCS)
         FATAL_ERROR("An index cannot be build over %ld documents, "
-                    "please reduce to a max of 65,535 docs.", ref_build.num_docs);
+                    "please reduce to a max of %d docs.", ref_build.num_docs, MAXDOCS);
     if ((build_opts.use_taxcomp || build_opts.use_topk) 
         && ref_build.num_docs < build_opts.numcolsintable)
         FATAL_ERROR("the k provided is larger than the number of documents.");
@@ -70,13 +71,13 @@ int build_main(int argc, char** argv) {
     helper_bins.validate();
 
     // parse the input text with BigBWT
-    STATUS_LOG("build_main", "generating the prefix-free parse for given reference");
+    STATUS_LOG("cliffy::log", "generating the prefix-free parse for given reference");
     start = std::chrono::system_clock::now();
     run_build_parse_cmd(&build_opts, &helper_bins);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
     // load the parse and dictionary into pf object
-    STATUS_LOG("build_main", "building the parse and dictionary objects");
+    STATUS_LOG("cliffy::log", "building the parse and dictionary objects");
     start = std::chrono::system_clock::now();
     pf_parsing pf(build_opts.output_ref, build_opts.pfp_w);
     DONE_LOG((std::chrono::system_clock::now() - start));
@@ -84,11 +85,11 @@ int build_main(int argc, char** argv) {
     // print info regarding the compression scheme being used
     std::cerr << "\n";
     if (build_opts.use_taxcomp)
-        FORCE_LOG_IMPORT("build_main", "taxonomic compression of the doc profiles will be used");
+        FORCE_LOG("cliffy::log", "taxonomic compression of the doc profiles will be used");
     else if (build_opts.use_topk)
-        FORCE_LOG_IMPORT("build_main", "top-k compression of the doc profile will be used");
+        FORCE_LOG("cliffy::log", "top-k compression of the doc profile will be used");
     else   
-        FORCE_LOG_IMPORT("build_main", "no compression scheme will be used for the doc profiles");
+        FORCE_LOG("cliffy::log", "\033[1m\033[32mno compression scheme will be used for the doc profiles\033[0m");
 
     // builds the BWT, SA, LCP, and document array profiles and writes to a file
     size_t num_runs = 0;
@@ -106,21 +107,21 @@ int build_main(int argc, char** argv) {
     std::cerr << "\n";
 
     // build the f_tab by building query object
-    FORCE_LOG_IMPORT("build_main", "building ftab to speed-up querying");
+    FORCE_LOG("cliffy::log", "\033[1m\033[32mbuilding ftab to speed-up querying\033[0m");
     if (!build_opts.use_taxcomp && !build_opts.use_topk){
         // build query object, and then build ftab index
         doc_queries doc_queries_obj(build_opts.output_ref);
 
-        STATUS_LOG("build_main", "generating ftab for all possible %d-mers", FTAB_ENTRY_LENGTH);
+        STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", FTAB_ENTRY_LENGTH);
         start = std::chrono::system_clock::now();
         size_t num_found = 0, num_not_found = 0;
 
         std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab();
         DONE_LOG((std::chrono::system_clock::now() - start));
 
-        FORCE_LOG_IMPORT("build_main", 
-                         "num of %d-mers found = %d, num of %d-mers NOT found = %d",
-                         FTAB_ENTRY_LENGTH, num_found, FTAB_ENTRY_LENGTH, num_not_found);
+        STATS_LOG("cliffy::stats", 
+                  "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
+                  FTAB_ENTRY_LENGTH, num_found, FTAB_ENTRY_LENGTH, num_not_found);
 
     } else if (build_opts.use_taxcomp) {
         FATAL_ERROR("Not implemented yet ...");
@@ -131,7 +132,7 @@ int build_main(int argc, char** argv) {
 
     // print out full time
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
-    FORCE_LOG("build_main", "finished: build time (s) = %.2f", build_time.count());
+    STATS_LOG("cliffy::stats", "finished: build time (s) = %.2f", build_time.count());
     std::cerr << "\n";
     
     return 0;
@@ -325,14 +326,26 @@ void print_build_status_info(PFPDocBuildOptions* opts) {
     std::fprintf(stderr, "\nOverview of Parameters:\n");
     std::fprintf(stderr, "\tInput file-list: %s\n", opts->input_list.data());
     std::fprintf(stderr, "\tOutput ref path: %s\n", opts->output_ref.data());
-    std::fprintf(stderr, "\tPFP window size: %d\n", opts->pfp_w);
-    std::fprintf(stderr, "\tInclude rev-comp?: %d\n", opts->use_rcomp);
+
+    if (opts->use_rcomp)
+        std::fprintf(stderr, "\tIncluded reverse-complement?: yes\n");
+    else
+        std::fprintf(stderr, "\tIncluded reverse-complement?: no\n");
+
+    if (opts->use_minimizers)
+        std::fprintf(stderr, "\tPerformed minimizer digestion?: yes, used minimizer-alphabet (k=%d, w=%d)\n", opts->small_window_l, opts->large_window_l);
+    else if (opts->use_dna_minimizers)
+        std::fprintf(stderr, "\tPerformed minimizer digestion?: yes, used DNA-alphabet (k=%d, w=%d)\n", opts->small_window_l, opts->large_window_l);
+    else
+        std::fprintf(stderr, "\tPerformed minimizer digestion?: no\n");
+
     if (opts->use_two_pass)
         std::fprintf(stderr, "\tBuild Algorithm: Two-Pass\n\n");
     else {
         std::fprintf(stderr, "\tBuild Algorithm: One-Pass\n");
         std::fprintf(stderr, "\tUse heuristics?: %d\n\n", opts->use_heuristics);
     }
+    //std::fprintf(stderr, "\tPFP window size: %d\n", opts->pfp_w);
 }
 
 void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
@@ -351,12 +364,16 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"modulus", required_argument, NULL, 'm'},
         {"two-pass", required_argument, NULL, 'a'},
         {"tmp-size", required_argument, NULL, 's'},
+        {"small-window", required_argument, NULL, 'b'},
+        {"large-window", required_argument, NULL, 'c'},
+        {"minimizer", no_argument, NULL, 'i'},
+        {"dna-minimizer", no_argument, NULL, 'j'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:a:s:", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:a:s:b:c:ij", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_build_usage(); std::exit(1);
             case 'f': opts->input_list.assign(optarg); break;
@@ -371,6 +388,10 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
             case 'm': opts->hash_mod = std::atoi(optarg); break;
             case 'a': opts->use_two_pass = true; opts->temp_prefix.assign(optarg); break;
             case 's': opts->tmp_size_str.assign(optarg); break;
+            case 'b': opts->small_window_l = std::atoi(optarg); break;
+            case 'c': opts->large_window_l = std::atoi(optarg); break;
+            case 'i': opts->use_minimizers = true; break;
+            case 'j': opts->use_dna_minimizers = true; break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
     }
@@ -448,23 +469,28 @@ int pfpdoc_build_usage() {
     std::fprintf(stderr, "Usage: pfp_doc build [options]\n\n");
 
     std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
-    std::fprintf(stderr, "\t%-18s%-10spath to a file-list of genomes to use\n", "-f, --filelist", "[FILE]");
-    std::fprintf(stderr, "\t%-18s%-10soutput prefix path if using -f option\n", "-o, --output", "[PREFIX]");
-    std::fprintf(stderr, "\t%-28sinclude the reverse-complement of sequence (default: false)\n\n", "-r, --revcomp");
+    std::fprintf(stderr, "\t%-31sprints this usage message\n", "-h, --help");
+    std::fprintf(stderr, "\t%-21s%-10spath to a file-list of genomes to use\n", "-f, --filelist", "[FILE]");
+    std::fprintf(stderr, "\t%-21s%-10soutput prefix path if using -f option\n", "-o, --output", "[PREFIX]");
+    std::fprintf(stderr, "\t%-31sinclude the reverse-complement of sequence (default: false)\n\n", "-r, --revcomp");
 
-    std::fprintf(stderr, "\t%-18s%-10suse the 2-pass construction algorithm (default: false)\n", "-a, --two-pass", "[PREFIX]");
-    std::fprintf(stderr, "\t%-18s%-10ssize of temporary storage files in GB (e.g. 4GB)\n\n", "-s, --tmp-size", "[ARG]");
-    
-    std::fprintf(stderr, "\t%-28suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
-    std::fprintf(stderr, "\t%-28suse top-k compression of the document array (default: false)\n", "-p, --top-k");
-    std::fprintf(stderr, "\t%-18s%-10snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col", "[INT]");
-    
-    std::fprintf(stderr, "\t%-18s%-10sdocument number whose profiles to extract\n", "-e, --print-doc", "[INT]");
-    std::fprintf(stderr, "\t%-28sturn off any heuristics used to build profiles\n\n", "-n, --no-heuristic");
+    std::fprintf(stderr, "\t%-21s%-10sdigest the reference using minimizer-alphabet minimizers\n", "-i, --minimizers", "");
+    std::fprintf(stderr, "\t%-21s%-10sdigest the reference using DNA-alphabet minimizers\n", "-j, --dna-minimizers", "");
+    std::fprintf(stderr, "\t%-21s%-10ssize of small window used for finding minimizers (default: 4)\n", "-b, --small-window", "[INT]");
+    std::fprintf(stderr, "\t%-21s%-10ssize of large window used for finding minimizers (default: 11)\n\n", "-c, --large-window", "[INT]");
 
-    std::fprintf(stderr, "\t%-18s%-10swindow size used for pfp (default: 10)\n", "-w, --window", "[INT]");
-    std::fprintf(stderr, "\t%-18s%-10shash-modulus used for pfp (default: 100)\n\n", "-m, --modulus", "[INT]");
+    std::fprintf(stderr, "\t%-21s%-10suse the 2-pass construction algorithm (default: false)\n", "-a, --two-pass", "[PREFIX]");
+    std::fprintf(stderr, "\t%-21s%-10ssize of temporary storage files in GB (e.g. 4GB)\n\n", "-s, --tmp-size", "[ARG]");
+    
+    std::fprintf(stderr, "\t%-31suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
+    std::fprintf(stderr, "\t%-31suse top-k compression of the document array (default: false)\n", "-p, --top-k");
+    std::fprintf(stderr, "\t%-21s%-10snumber of columns to include in the main table (default: 7)\n\n", "-k, --num-col", "[INT]");
+    
+    std::fprintf(stderr, "\t%-21s%-10sdocument number whose profiles to extract\n", "-e, --print-doc", "[INT]");
+    std::fprintf(stderr, "\t%-31sturn off any heuristics used to build profiles\n\n", "-n, --no-heuristic");
+
+    std::fprintf(stderr, "\t%-21s%-10swindow size used for pfp (default: 10)\n", "-w, --window", "[INT]");
+    std::fprintf(stderr, "\t%-21s%-10shash-modulus used for pfp (default: 100)\n\n", "-m, --modulus", "[INT]");
 
     return 0;
 }
@@ -525,7 +551,7 @@ int pfpdoc_usage() {
 
 int main(int argc, char** argv) {
     /* main method for pfp_doc */
-    std::fprintf(stderr, "\033[1m\033[31m\npfp-doc version: %s\033[m\033[0m\n", PFPDOC_VERSION);
+    std::fprintf(stderr, "\033[1m\033[31m\n%s version: %s\033[m\033[0m\n", TOOL_NAME, PFPDOC_VERSION);
 
     if (argc > 1) {
         if (std::strcmp(argv[1], "build") == 0) 
