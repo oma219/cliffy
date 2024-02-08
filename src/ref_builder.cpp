@@ -18,26 +18,17 @@
 #include <stdio.h>
 #include <numeric>
 #include <sdsl/bit_vectors.hpp>
+#include <minimizer_digest.hpp>
 
 KSEQ_INIT(int, read);
 
-/* Complement Table from: https://github.com/lh3/seqtk/blob/master/seqtk.c */
-char comp_tab[] = {
-	  0,   1,	2,	 3,	  4,   5,	6,	 7,	  8,   9,  10,	11,	 12,  13,  14,	15,
-	 16,  17,  18,	19,	 20,  21,  22,	23,	 24,  25,  26,	27,	 28,  29,  30,	31,
-	 32,  33,  34,	35,	 36,  37,  38,	39,	 40,  41,  42,	43,	 44,  45,  46,	47,
-	 48,  49,  50,	51,	 52,  53,  54,	55,	 56,  57,  58,	59,	 60,  61,  62,	63,
-	 64, 'T', 'V', 'G', 'H', 'E', 'F', 'C', 'D', 'I', 'J', 'M', 'L', 'K', 'N', 'O',
-	'P', 'Q', 'Y', 'S', 'A', 'A', 'B', 'W', 'X', 'R', 'Z',	91,	 92,  93,  94,	95,
-	 64, 't', 'v', 'g', 'h', 'e', 'f', 'c', 'd', 'i', 'j', 'm', 'l', 'k', 'n', 'o',
-	'p', 'q', 'y', 's', 'a', 'a', 'b', 'w', 'x', 'r', 'z', 123, 124, 125, 126, 127
-};
-
 RefBuilder::RefBuilder(std::string input_data, std::string output_prefix, 
-                        bool use_rcomp): input_file(input_data), use_revcomp(use_rcomp) {
+                        bool use_rcomp, ref_type seq_type, size_t small_w, size_t large_w): 
+                       input_file(input_data), 
+                       use_revcomp(use_rcomp)
+{
     /* Constructor of RefBuilder - builds input reference and determines size of each class */
 
-    // Verify every file in the filelist is valid
     std::string line = "";
     size_t curr_id = 0, member_num = 0;
 
@@ -45,6 +36,7 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
     std::vector<std::string> input_files;
     std::vector<size_t> document_ids;
 
+    // first, verify every file in the filelist is valid
     while (std::getline(input_fd, line)) {
         auto word_list = split(line, ' ');
 
@@ -71,18 +63,22 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
         member_num += 1;
     }
     
-    // Make sure we have parsed each line, and it has multiple groups
+    // make sure we have parsed each line, and it has multiple groups
     ASSERT((document_ids.size() == input_files.size()), "Issue with file-list parsing occurred.");
     if (document_ids.back() == 1) {
         FATAL_ERROR("If you only have one class ID, you should not build a document array.");}
 
-    // Declare needed parameters for reading/writing
+    // declare needed parameters for reading/writing
     output_ref = output_prefix + ".fna";
     std::ofstream output_fd (output_ref.data(), std::ofstream::out);
     FILE* fp; kseq_t* seq;
     std::vector<size_t> seq_lengths;
 
-    // Start working on building the reference file by reading each file ...
+    // create minimizer digest object (will only be used when seq_type == MINIMIZER or DNA_MINIMIZER)
+    MinimizerDigest digester(small_w, large_w, false, (seq_type == MINIMIZER));
+    std::string mseq = "";
+
+    // second, start working on building the reference file by reading each file ...
     curr_id = 1;
     size_t curr_id_seq_length = 0;
     for (auto iter = input_files.begin(); iter != input_files.end(); ++iter) {
@@ -94,18 +90,25 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
         size_t iter_index = static_cast<size_t>(iter-input_files.begin());
 
         while (kseq_read(seq)>=0) {
-            // Get forward seq, and write to file
-			for (size_t i = 0; i < seq->seq.l; ++i) {
-				seq->seq.s[i] = static_cast<char>(std::toupper(seq->seq.s[i]));
+            // uppercase the forward sequence
+			for (size_t i = 0; i < seq->seq.l; ++i) {seq->seq.s[i] = up_tab[(int) seq->seq.s[i]];}
+
+            // write it out to file
+            if (seq_type == MINIMIZER) {
+                mseq = digester.compute_digest(seq->seq.s);
+                output_fd << mseq;
+                curr_id_seq_length += mseq.size();
+            } else if (seq_type == DNA_MINIMIZER) {
+                mseq = digester.compute_digest(seq->seq.s);
+                output_fd << '>' << seq->name.s << '\n' << mseq << '\n';
+                curr_id_seq_length += mseq.size();
+            } else {
+                output_fd << '>' << seq->name.s << '\n' << seq->seq.s << '\n';
+                curr_id_seq_length += seq->seq.l;
             }
-           
-            // Added dollar sign as separator, and added 1 to length
-            output_fd << '>' << seq->name.s << '\n' << seq->seq.s << '\n';
-            curr_id_seq_length += seq->seq.l;
             
-            // Get reverse complement, and print it
-            // Based on seqtk reverse complement code, that does it 
-            // in place. (https://github.com/lh3/seqtk/blob/master/seqtk.c)
+            // compute reverse complement, and print it. based on seqtk reverse complement 
+            // code, that does it in place. (https://github.com/lh3/seqtk/blob/master/seqtk.c)
             if (use_revcomp) {
                 int c0, c1;
                 for (size_t i = 0; i < seq->seq.l>>1; ++i) { // reverse complement sequence
@@ -117,27 +120,39 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
                 if (seq->seq.l & 1) // complement the remaining base
                     seq->seq.s[seq->seq.l>>1] = comp_tab[static_cast<int>(seq->seq.s[seq->seq.l>>1])];
 
-                // Added dollar sign as separator, and added 1 to length
-                output_fd << '>' << seq->name.s << "_rev_comp" << '\n' << seq->seq.s << '\n';
-                curr_id_seq_length += seq->seq.l;
+
+                // write out the reverse complement
+                if (seq_type == MINIMIZER) {
+                    mseq = digester.compute_digest(seq->seq.s);
+                    output_fd << mseq;
+                    curr_id_seq_length += mseq.size();
+                } else if (seq_type == DNA_MINIMIZER) {
+                    mseq = digester.compute_digest(seq->seq.s);
+                    output_fd << '>' << seq->name.s << "_rev_comp" << '\n' << mseq << '\n';
+                    curr_id_seq_length += mseq.size();
+                } else {
+                    output_fd << '>' << seq->name.s << "_rev_comp" << '\n' << seq->seq.s << '\n';
+                    curr_id_seq_length += seq->seq.l;
+                }
+
             }
         }
         kseq_destroy(seq);
         fclose(fp);
 
-        // Check if we are transitioning to a new group
+        // check if we are transitioning to a new group
         if (iter_index < document_ids.size()-1 && document_ids[iter_index] != document_ids[iter_index+1]){
             seq_lengths.push_back(curr_id_seq_length);
             curr_id += 1; curr_id_seq_length = 0;
-        // If it is the last file, output current sequence length
-        } else if (iter_index == document_ids.size()-1){
+        // if it is the last file, output current sequence length
+        } else if (iter_index == document_ids.size()-1) {
             seq_lengths.push_back(curr_id_seq_length);
             curr_id_seq_length = 0;
         }
     }
     output_fd.close();
 
-    // Add 1 to last document for $ and find total length
+    // add 1 to last document for $ and find total length
     size_t total_input_length = 0;
     seq_lengths[seq_lengths.size()-1] += 1; // for $
     for (auto length: seq_lengths) {
@@ -147,7 +162,7 @@ RefBuilder::RefBuilder(std::string input_data, std::string output_prefix,
     this->total_length = total_input_length;
     this->num_docs = seq_lengths.size();
 
-    // Build bitvector/rank support marking the end of each document
+    // build bitvector/rank support marking the end of each document
     doc_ends = sdsl::bit_vector(total_input_length, 0);
     size_t curr_sum = 0;
 

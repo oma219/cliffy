@@ -10,6 +10,7 @@
 
 #include <string>
 #include <sdsl/bit_vectors.hpp>
+#include <pfp_doc.hpp>
 
 class RefBuilder {
 public:
@@ -22,7 +23,8 @@ public:
     size_t num_docs = 0;
     size_t total_length = 0;
     
-    RefBuilder(std::string input_data, std::string output_prefix, bool use_rcomp);
+    RefBuilder(std::string input_data, std::string output_prefix, bool use_rcomp,
+               ref_type seq_type=DNA, size_t small_w=4, size_t large_w=11);
 
 }; // end of RefBuilder class
 

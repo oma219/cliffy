@@ -218,6 +218,10 @@ struct PFPDocBuildOptions {
             // smaller window of minimizer scheme must be smaller than larger window
             if (small_window_l > large_window_l)
                 FATAL_ERROR("small window of minimizer scheme cannot be larger than the large window.");
+
+            // make sure small window is 4 if using minimizer alphabet
+            if (use_minimizers && small_window_l != 4)
+                FATAL_ERROR("when using minimizer alphabet, the small window must be set to 4.");
         }
 };
 

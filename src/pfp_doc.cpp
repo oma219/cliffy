@@ -46,7 +46,12 @@ int build_main(int argc, char** argv) {
     STATUS_LOG("cliffy::log", "building the reference file based on file-list");
     auto start = std::chrono::system_clock::now();
 
-    RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp);
+    ref_type database_type = DNA;
+    if (build_opts.use_minimizers) database_type = MINIMIZER;
+    else if (build_opts.use_dna_minimizers) database_type = DNA_MINIMIZER;
+
+    RefBuilder ref_build(build_opts.input_list, build_opts.output_prefix, build_opts.use_rcomp,
+                         database_type, build_opts.small_window_l, build_opts.large_window_l);
     DONE_LOG((std::chrono::system_clock::now() - start));
 
     // make sure that document numbers can be stored in 2 bytes, and 
