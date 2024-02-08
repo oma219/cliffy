@@ -119,13 +119,12 @@ std::string MinimizerDigest::compute_digest(std::string input_seq) {
                                  ", string = " << input_seq.substr(queue[0].pos,k));   
 
         if (minimizer_alp) {
-            ASSERT((queue[0].val <= 255), "unexpected value seen for k-mer");
+            ASSERT((queue[0].val <= 255 && queue[0].val >= 3), "unexpected value seen for k-mer");
             uint8_t min_char = KMER_TO_UINT8_CHAR(queue[0].val);
             digest += min_char;
         } else {
             digest += input_seq.substr(queue[0].pos, k);
         }
-        //digest += (!minimizer_alp) ? input_seq.substr(queue[0].pos, k) : KMER_TO_UINT8_CHAR(queue[0].val);
         last_minimizer = queue[0].val;
     }
     // remove first element if out of range
@@ -156,13 +155,12 @@ std::string MinimizerDigest::compute_digest(std::string input_seq) {
                                      ", string = " << input_seq.substr(queue[0].pos,k));
             
             if (minimizer_alp) {
-                ASSERT((queue[0].val <= 255), "unexpected value seen for k-mer");
+                ASSERT((queue[0].val <= 255 && queue[0].val >= 3), "unexpected value seen for k-mer");
                 uint8_t min_char = KMER_TO_UINT8_CHAR(queue[0].val);
                 digest += min_char;
             } else {
                 digest += input_seq.substr(queue[0].pos, k);
             }
-            //digest += (!minimizer_alp) ? input_seq.substr(queue[0].pos, k) : KMER_TO_UINT8_CHAR(queue[0].val);
             last_minimizer = queue[0].val;
         }
 
