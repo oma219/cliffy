@@ -11,7 +11,6 @@
  */
 
 #include <minimizer_digest.hpp>
-#include <pfp_doc.hpp>
 #include <hash_func.hpp>
 #include <string.h>
 

@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <iostream>
 #include <vector>
+#include <pfp_doc.hpp>
 
 #define BITS_PER_CHAR 2
 #define KMER_TO_UINT8_CHAR(x) (char) ((x <= 2) ? (x+3) : x)

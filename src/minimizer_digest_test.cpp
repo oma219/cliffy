@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <chrono>
 #include <minimizer_digest.hpp>
-#include <pfp_doc.hpp>
 
 std::string generate_random_dna_string(size_t length) {
     // declare needed variables

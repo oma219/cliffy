@@ -42,10 +42,12 @@
 #define DEBUG_MSG(str) 
 #endif
 
+/* Enum Defintions */
+enum ref_type {DNA, DNA_MINIMIZER, MINIMIZER};
+
 /* Definitions */
 #define PFPDOC_VERSION "1.0.8"
 #define TOOL_NAME "cliffy"
-
 #define DOCWIDTH 2
 #define MAXQUEUELENGTH 1000000
 #define MAXLCPVALUE 65535 // 2^16 - 1
@@ -54,11 +56,35 @@
 #define FTAB_ALPHABET_SIZE 4
 #define FTAB_ENTRY_SIZE 26
 
+/* Definitions related to SIMD */
 #define AVX2_PRESENT __AVX2__ 
 #define AVX512BW_PRESENT __AVX512BW__ 
 
 /* MACROS related to FTAB creation */
 #define FTAB_GRAB_CODE(num, pos) (((0x3 << (pos * 2)) & num) >> (pos * 2))
+
+/* Tables used for quick upper-casing and complementing */
+inline char up_tab[] = {
+	  0,   1,	2,	 3,	  4,   5,	6,	 7,	  8,   9,  10,	11,	 12,  13,  14,	15,
+	 16,  17,  18,	19,	 20,  21,  22,	23,	 24,  25,  26,	27,	 28,  29,  30,	31,
+	 32,  33,  34,	35,	 36,  37,  38,	39,	 40,  41,  42,	43,	 44,  45,  46,	47,
+	 48,  49,  50,	51,	 52,  53,  54,	55,	 56,  57,  58,	59,	 60,  61,  62,	63,
+	 64, 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+	'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',	91,	 92,  93,  94,	95,
+	 96, 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+	'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 123, 124, 125, 126, 127
+};
+/* Complement Table from: https://github.com/lh3/seqtk/blob/master/seqtk.c */
+inline char comp_tab[] = {
+	  0,   1,	2,	 3,	  4,   5,	6,	 7,	  8,   9,  10,	11,	 12,  13,  14,	15,
+	 16,  17,  18,	19,	 20,  21,  22,	23,	 24,  25,  26,	27,	 28,  29,  30,	31,
+	 32,  33,  34,	35,	 36,  37,  38,	39,	 40,  41,  42,	43,	 44,  45,  46,	47,
+	 48,  49,  50,	51,	 52,  53,  54,	55,	 56,  57,  58,	59,	 60,  61,  62,	63,
+	 64, 'T', 'V', 'G', 'H', 'E', 'F', 'C', 'D', 'I', 'J', 'M', 'L', 'K', 'N', 'O',
+	'P', 'Q', 'Y', 'S', 'A', 'A', 'B', 'W', 'X', 'R', 'Z',	91,	 92,  93,  94,	95,
+	 64, 't', 'v', 'g', 'h', 'e', 'f', 'c', 'd', 'i', 'j', 'm', 'l', 'k', 'n', 'o',
+	'p', 'q', 'y', 's', 'a', 'a', 'b', 'w', 'x', 'r', 'z', 123, 124, 125, 126, 127
+};
 
 /* Function declations */
 int pfpdoc_usage();
