@@ -226,32 +226,19 @@ int info_main(int argc, char** argv) {
 }
 
 void run_build_parse_cmd(PFPDocBuildOptions* build_opts, HelperPrograms* helper_bins) {
-    // Generates and runs the command-line for executing the PFP of the reference 
+    /* generates and runs the command-line for executing the PFP of the reference */
     std::ostringstream command_stream;
-    if (build_opts->threads > 0) {
-        std::string curr_exe = "";
-        if (build_opts->is_fasta) {curr_exe.assign(helper_bins->parse_fasta_bin);}
-        else {curr_exe.assign(helper_bins->parse_bin);}
 
-        command_stream << curr_exe << " "; //<< " -i ";
-        command_stream << build_opts->output_ref << " ";
-        command_stream << "-w " << build_opts->pfp_w;
-        command_stream << " -p " << build_opts->hash_mod;
-        command_stream << " -t " << build_opts->threads;
-    }
-    else {
-        std::string curr_exe = "";
-        command_stream << helper_bins->parseNT_bin << " "; // << " -i ";
-        command_stream << build_opts->output_ref << " ";
-        command_stream << "-w " << build_opts->pfp_w;
-        command_stream << " -p " << build_opts->hash_mod;
-    }
+    // important note, we are only using newscanNT.x to avoid an issue
+    // present in newscanNT.x
+    std::string curr_exe = "";
+    command_stream << helper_bins->parseNT_bin << " "; // << " -i ";
+    command_stream << build_opts->output_ref << " ";
+    command_stream << "-w " << build_opts->pfp_w;
+    command_stream << " -p " << build_opts->hash_mod;
     if (build_opts->is_fasta) {command_stream << " -f";}
 
-    // std::cout << command_stream.str() << std::endl;
-    //LOG(build_opts->verbose, "build_parse", ("Executing this command: " + command_stream.str()).data());
     auto parse_log = execute_cmd(command_stream.str().c_str());
-    //OTHER_LOG(parse_log.data());
 }
 
 std::string execute_cmd(const char* cmd) {
