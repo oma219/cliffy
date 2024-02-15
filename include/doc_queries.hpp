@@ -679,17 +679,29 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             return written_bytes;
         }
 
-        std::pair<size_t, size_t> build_ftab() {
+        std::pair<size_t, size_t> build_ftab(bool minimizer_alphabet) {
             /* build the f_tab and store it in the *.fna.ftab file */
 
             // table to convert 2-bits into a character (00, 01, 10, 11)
             char nuc_tab[] = {'A', 'C', 'T', 'G'}; 
 
             // initialize some variables
-            size_t num_entries = std::pow(FTAB_ALPHABET_SIZE, FTAB_ENTRY_LENGTH);
             std::vector<size_t> index_vec(FTAB_ENTRY_LENGTH) ; 
             std::iota(index_vec.begin(), index_vec.end(), 0); 
+
+            size_t num_entries = std::pow(FTAB_ALPHABET_SIZE, FTAB_ENTRY_LENGTH);
             size_t ftab_file_size = num_entries * FTAB_ENTRY_SIZE;
+            size_t length_of_ftab_entry = FTAB_ENTRY_LENGTH;
+
+            // change variables if using minimizer alphabet
+            if (minimizer_alphabet) {
+                index_vec.resize(FTAB_ENTRY_LENGTH_MIN);
+                std::iota(index_vec.begin(), index_vec.end(), 0);
+
+                num_entries = std::pow(FTAB_ALPHABET_SIZE_MIN, FTAB_ENTRY_LENGTH_MIN);
+                ftab_file_size = num_entries * FTAB_ENTRY_SIZE;
+                length_of_ftab_entry = FTAB_ENTRY_LENGTH_MIN;
+            }
 
             // create a memory-mapped file for writing the ftab
             mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
@@ -716,19 +728,34 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             // DEBUG: open file and store results for checking
             std::ofstream debug_fd(output_ref + ".ftab.debug.txt");
                       
-            // iterate through all possible 10-mer in dictionary
+            // iterate through all possible k-mers in dictionary
             size_t num_not_found = 0, num_found = 0;
             for (size_t loop_index = 0; loop_index < num_entries; loop_index++) {
-                std::string curr_seq(FTAB_ENTRY_LENGTH, '*');
+                std::string curr_seq(length_of_ftab_entry, '*');
 
-                // generates current 10-mer by converting every 2-bits into a character
-                std::transform(index_vec.begin(), index_vec.end(), curr_seq.begin(),
-                               [&] (size_t pos) {
-                                    uint8_t code = FTAB_GRAB_CODE(loop_index, pos);
-                                    assert(code <= 3);
-                                    return nuc_tab[code];});
+                if (!minimizer_alphabet) {
+                    // case DNA-seq: generates current 10-mer by converting 
+                    // every 2-bits into a character
+                    std::transform(index_vec.begin(), index_vec.end(), curr_seq.begin(),
+                                [&] (size_t pos) {
+                                        uint8_t code = FTAB_GRAB_CODE(loop_index, pos);
+                                        ASSERT((code <= 3), "invalid DNA code encounted in ftab generation.");
+                                        return nuc_tab[code];});
+                } else {
+                    // case minimizer-alphabet: generate 3-mer by converting the decimal
+                    // number into a 253-base
+                    size_t curr_quotient = loop_index;
+                    size_t pos = 0;
+                    while (curr_quotient > 0) {
+                        size_t remainder = curr_quotient % FTAB_ALPHABET_SIZE_MIN;
+                        curr_quotient = curr_quotient / FTAB_ALPHABET_SIZE_MIN;
+                        ASSERT((remainder < 253), "invalid minimizer character encountered in ftab generation.");
+                        curr_seq[pos++] = (uint8_t) (remainder+3); // avoid 0, 1, 2 due to PFP
+                    }
+                    for (;pos < length_of_ftab_entry; pos++) {curr_seq[pos] = (uint8_t) 3;} // smallest char is 3
+                }
 
-                // we reverse here since we grab 2-bits from LSB to MSB and 
+                // we reverse here since we grab bits from LSB to MSB and 
                 // build string from left to right, so we reverse it to make
                 // the two-bits correspond to letters                  
                 std::reverse(curr_seq.begin(), curr_seq.end());
@@ -743,10 +770,11 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 bool use_start = false, use_end = false;
 
                 // perform backward search for current 10-mer
-                int j = (FTAB_ENTRY_LENGTH-1);
+                int j = (length_of_ftab_entry-1);
                 for (; j>=0; j--) {
                     // get character, keep in mind it is already capitalized
                     uint8_t next_ch = curr_seq[j];
+                    //std::cout << "next_ch = " << unsigned(next_ch) << std::endl;
 
                     // identify the run # for start and end
                     size_t num_ch_before_start = this->bwt.rank(start, next_ch);
@@ -801,6 +829,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     num_found++;
                 }
 
+                // std::cout << "not_found = " << not_found 
+                //           << ", start = " << start 
+                //           << ", end = " << end 
+                //           << ", curr_prof_pos = " << curr_prof_pos 
+                //           << ", use_start = " << use_start 
+                //           << ", use_end = " << use_end 
+                //           << ", curr_prof_ch = " << curr_prof_ch 
+                //           << ", LF_steps = " << num_LF_steps << std::endl;
+
                 // write out the first three elements of ftab entry
                 size_t start_pos = loop_index * FTAB_ENTRY_SIZE;
                 ASSERT((sizeof(size_t) == 8), "issue occurred when checking size_t size");
@@ -815,14 +852,28 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
 
                 // write the remaining two elements of ftab entry
-                ASSERT((num_LF_steps < FTAB_ENTRY_LENGTH), "Issue with ftab build. (1)");
+                ASSERT((num_LF_steps < length_of_ftab_entry), "Issue with ftab build. (1)");
 
                 /* 4. Number of LF Steps - USE_START (top bit) - USE_END (2nd top bit) */
-                ASSERT((use_start || use_end), "Issue with ftab build. (2)");
+                ASSERT((use_start || use_end || not_found), "Issue with ftab build. (2)");
                 mmap_ftab[start_pos + (3*sizeof(size_t))] = (0xFF & num_LF_steps) | (use_start << 7) | (use_end << 6);
 
                 /* 5. BWT character */
                 mmap_ftab[start_pos + (3*sizeof(size_t)) + 1] = (0xFF & curr_prof_ch);
+
+                // create readable string for debug file
+                if (minimizer_alphabet) {
+                    std::string temp_str = "";
+                    uint8_t curr_ch = 0;
+                    for (size_t i = 0; i < curr_seq.size()-1; i++) {
+                        curr_ch = curr_seq[i];
+                        temp_str += std::to_string(curr_ch) + "-";
+                    }
+                    curr_ch = curr_seq[curr_seq.size()-1];
+                    temp_str += std::to_string(curr_ch);
+
+                    curr_seq = temp_str;
+                }
 
                 debug_fd << loop_index
                          << "," << curr_seq 
@@ -830,7 +881,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                          << "," << end 
                          << "," << curr_prof_pos 
                          << "," << num_LF_steps 
-                         << "," << curr_prof_ch
+                         << "," << unsigned(curr_prof_ch)
                          << "," << use_start 
                          << "," << use_end << std::endl;
             }

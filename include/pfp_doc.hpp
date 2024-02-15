@@ -56,12 +56,17 @@ enum ref_type {DNA, DNA_MINIMIZER, MINIMIZER};
 #define FTAB_ALPHABET_SIZE 4
 #define FTAB_ENTRY_SIZE 26
 
+#define FTAB_ALPHABET_SIZE_MIN 253
+#define FTAB_ENTRY_LENGTH_MIN 3
+
+
 /* Definitions related to SIMD */
 #define AVX2_PRESENT __AVX2__ 
 #define AVX512BW_PRESENT __AVX512BW__ 
 
 /* MACROS related to FTAB creation */
 #define FTAB_GRAB_CODE(num, pos) (((0x3 << (pos * 2)) & num) >> (pos * 2))
+#define FTAB_GRAB_CODE(num, pos) (((0xF << (pos * 4)) & num) >> (pos * 4))
 
 /* Tables used for quick upper-casing and complementing */
 inline char up_tab[] = {

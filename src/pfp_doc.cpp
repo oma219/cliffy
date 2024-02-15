@@ -121,7 +121,7 @@ int build_main(int argc, char** argv) {
         start = std::chrono::system_clock::now();
         size_t num_found = 0, num_not_found = 0;
 
-        std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab();
+        std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab(build_opts.use_minimizers);
         DONE_LOG((std::chrono::system_clock::now() - start));
 
         STATS_LOG("cliffy::stats", 
