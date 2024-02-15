@@ -382,7 +382,7 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
             case 's': opts->tmp_size_str.assign(optarg); break;
             case 'b': opts->small_window_l = std::atoi(optarg); break;
             case 'c': opts->large_window_l = std::atoi(optarg); break;
-            case 'i': opts->use_minimizers = true; break;
+            case 'i': opts->use_minimizers = true; opts->is_fasta=false; break;
             case 'j': opts->use_dna_minimizers = true; break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
