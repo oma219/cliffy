@@ -29,7 +29,7 @@ extern "C" {
 
 #define TEMPDATA_RECORD 6
 
-// macros for reading from file
+/* MACROS for reading from file */
 #define GET_IS_START(fd, num) (0x2 & fd[num * TEMPDATA_RECORD]) >> 1
 #define GET_IS_END(fd, num) (0x1 & fd[num * TEMPDATA_RECORD])
 #define GET_BWT_CH(fd, num) (fd[num * TEMPDATA_RECORD + 1])
@@ -37,7 +37,7 @@ extern "C" {
 #define GET_LCP(fd, num) ((0xFF & fd[num * TEMPDATA_RECORD + 4]) | ((0xFF & fd[num * TEMPDATA_RECORD + 5]) << 8))
 #define GET_DAP(fd, num) ((0xFF & fd[num * DOCWIDTH]) | ((0xFF & fd[num * DOCWIDTH + 1]) << 8))
 
-// struct for temp lcp queue data
+/* struct for temp lcp queue data */
 typedef struct
 {
     bool is_start = false;
@@ -47,7 +47,7 @@ typedef struct
     size_t lcp_i = 0;
 } temp_data_entry_t;
 
-// struct for each phrase suffix
+/* struct for each phrase suffix */
 typedef struct
 {
     // this should be safe since the first entry of sa is 
@@ -110,22 +110,38 @@ class pfp_lcp_doc_two_pass {
             for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
                 predecessor_max_lcp[i][j] = max_lcp_init;
 
+        // DEBUG: START ------------------------------------------
+        // DON'T FORGET TO RELEASE THIS MEMORY
+        predecessor_max_lcp2 = new uint16_t*[256];
+        for (size_t i = 0; i < 256; i++) {
+            predecessor_max_lcp2[i] =  new uint16_t[num_blocks_of_32 * 32];
+        }
+        for (size_t i = 0; i < 256; i++)
+            for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
+                predecessor_max_lcp2[i][j] = max_lcp_init;
+        
+        last_updated_row = 256;
+        dirty_lcp_cache = new uint16_t[256];
+        for (size_t i = 0; i < 256; i++)
+            dirty_lcp_cache[i] = max_lcp_init;
+        // DEBUG: END ---------------------------------------------
+
         // create a struct to store data for temp file
         temp_data_entry_t curr_data_entry;
 
-        // Start of the construction ...
+        // start of construction ... this loop generates the SA, LCP and BWT
         inc(curr);
         while (curr.i < pf.dict.saD.size())
         {
-            // Make sure current suffix is a valid proper phrase suffix 
+            // make sure current suffix is a valid proper phrase suffix 
             // (at least w characters but not whole phrase)
             if(is_valid(curr))
             {
-                // Compute the next character of the BWT of T
+                // compute the next character of the BWT of T
                 std::vector<phrase_suffix_t> same_suffix(1, curr);
                 phrase_suffix_t next = curr;
 
-                // Go through suffix array of dictionary and store all phrase ids with same suffix
+                // go through suffix array of dictionary and store all phrase ids with same suffix
                 while (inc(next) && (pf.dict.lcpD[next.i] >= curr.suffix_length))
                 {
                     assert(next.suffix_length >= curr.suffix_length);
@@ -136,7 +152,7 @@ class pfp_lcp_doc_two_pass {
                     }
                 }
 
-                // Hard case: phrases with different BWT characters precediing them
+                // hard case: phrases with different BWT characters precediing them
                 int_t lcp_suffix = compute_lcp_suffix(curr, prev);
                 typedef std::pair<int_t *, std::pair<int_t *, uint8_t>> pq_t;
 
@@ -145,7 +161,7 @@ class pfp_lcp_doc_two_pass {
                     return *lhs.first > *rhs.first;
                 };
                 
-                // Merge a list of occurrences of each phrase in the BWT of the parse
+                // merge a list of occurrences of each phrase in the BWT of the parse
                 std::priority_queue<pq_t, std::vector<pq_t>, decltype(cmp)> pq(cmp);
                 for (auto s: same_suffix)
                 {
@@ -163,12 +179,13 @@ class pfp_lcp_doc_two_pass {
 
                     if (!first)
                     {
-                        // Compute the minimum s_lcpP of the the current and previous occurrence of the phrase in BWT_P
+                        // compute the minimum s_lcpP of the the current and previous 
+                        // occurrence of the phrase in BWT_P
                         lcp_suffix = curr.suffix_length + min_s_lcp_T(*curr_occ.first, prev_occ);
                     }
                     first = false;
 
-                    // Update min_s
+                    // update min_s
                     print_lcp(lcp_suffix, j);
                     update_ssa(curr, *curr_occ.first);
                     update_bwt(curr_occ.second.second, 1);
@@ -183,15 +200,15 @@ class pfp_lcp_doc_two_pass {
                     size_t sa_i = ssa;
                     size_t doc_i = ref_build->doc_ends_rank(ssa);
 
-                    // Determine whether current suffix is a run boundary   
+                    // determine whether current suffix is a run boundary   
                     bool is_start = (pos == 0 || curr_bwt_ch != prev_bwt_ch) ? 1 : 0;
                     bool is_end = (pos == ref_build->total_length-1); // only special case, common case is below
 
-                    // Handle scenario where the previous suffix was a end of a run
+                    // handle scenario where the previous suffix was a end of a run
                     if (pos > 0 && prev_bwt_ch != curr_bwt_ch)
                         curr_data_entry.is_end = true;
                     
-                    // Push previous suffix data into temp data file
+                    // push previous suffix data into temp data file
                     if (pos > 0) {
                         write_data_to_temp_file(curr_data_entry);
                         if (curr_data_entry.is_start || curr_data_entry.is_end)
@@ -202,23 +219,28 @@ class pfp_lcp_doc_two_pass {
                     size_t pos_of_LF_i = (sa_i > 0) ? (sa_i - 1) : (ref_build->total_length-1);
                     size_t doc_of_LF_i = ref_build->doc_ends_rank(pos_of_LF_i);
 
-                    // std::cout << "\npos = " << pos << ", run_num = " << curr_run_num <<  ", ch = " << curr_bwt_ch << ", doc = " << doc_of_LF_i << ", lcp = " << lcp_i << ", suffix_length = " << (ref_build->total_length - pos_of_LF_i)  << std::endl;
-                    // if (curr_run_num > 40)
-                    //     std::exit(1);
+                    DEBUG_MSG("pos = " << pos << 
+                              ", run_num = " << curr_run_num <<  
+                              ", ch = " << curr_bwt_ch << 
+                              ", doc = " << doc_of_LF_i << 
+                              ", lcp = " << lcp_i << 
+                              ", suffix_length = " << (ref_build->total_length - pos_of_LF_i));
 
-                    // Gather current suffix data
+                    // gather current suffix data
                     curr_data_entry = {is_start, is_end, curr_bwt_ch, doc_of_LF_i, lcp_i};
 
-                    // Update matrices based on current BWT character, and doc
+                    // update matrices based on current BWT character, and doc
                     ch_doc_encountered[curr_bwt_ch][doc_of_LF_i] = true;
 
-                    // Re-initialize doc profiles and max lcp with current document (itself)
+                    // re-initialize doc profiles and max lcp with current document (itself)
                     std::fill(curr_da_profile.begin(), curr_da_profile.end(), 0);
                     curr_da_profile[doc_of_LF_i] = ref_build->total_length - pos_of_LF_i;
 
-                    // Update the predecessor table, and initialize current document array profile
-                    update_predecessor_max_lcp_table(lcp_i, ref_build->total_length, pos_of_LF_i, doc_of_LF_i, curr_bwt_ch);
-                    initialize_current_row_profile(doc_of_LF_i, curr_da_profile, curr_bwt_ch);
+                    // update the predecessor table, and initialize current document array profile
+                    //update_predecessor_max_lcp_table(lcp_i, ref_build->total_length, pos_of_LF_i, doc_of_LF_i, curr_bwt_ch);
+                    update_predecessor_max_lcp_table_lazy_version(lcp_i, ref_build->total_length, pos_of_LF_i, doc_of_LF_i, curr_bwt_ch);
+                    //initialize_current_row_profile(doc_of_LF_i, curr_da_profile, curr_bwt_ch);
+                    initialize_current_row_profile_lazy_version(doc_of_LF_i, curr_da_profile, curr_bwt_ch);
 
                     /* End of DA Code */
 
@@ -248,7 +270,7 @@ class pfp_lcp_doc_two_pass {
         if (curr_data_entry.is_start || curr_data_entry.is_end)
             write_profile_to_temp_file(curr_da_profile);
 
-        // Re-initialize the predecessor table, and other structures
+        // re-initialize the predecessor table, and other structures
         for (size_t i = 0; i < 256; i++) {
             for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
                 predecessor_max_lcp[i][j] = max_lcp_init;
@@ -256,24 +278,45 @@ class pfp_lcp_doc_two_pass {
                 ch_doc_encountered[i][j] = false;
         }
 
-        // Perform 2nd pass ...
+        // DEBUG: START ------------------------------------------
+        for (size_t i = 0; i < 256; i++)
+            for (size_t j = 0; j < num_blocks_of_32 * 32; j++)
+                predecessor_max_lcp2[i][j] = max_lcp_init;
+        
+        last_updated_row = 256;
+        for (size_t i = 0; i < 256; i++)
+            dirty_lcp_cache[i] = max_lcp_init;
+        // DEBUG: END ---------------------------------------------
+
+
+        // perform 2nd pass which focuses only on document array profiles...
         STATUS_LOG("build_main", "performing 2nd pass to update profiles");
         start = std::chrono::system_clock::now();
 
         size_t dap_ptr = num_dap_temp_data - num_docs;
         for (size_t i = num_lcp_temp_data; i > 0; i--) {
-            // Re-initialize at each position
+            // re-initialize at each position
             std::fill(curr_da_profile.begin(), curr_da_profile.end(), 0);
 
-            // Grab the data for current suffix
+            // grab the data for current suffix
             bool is_start = GET_IS_START(mmap_lcp_inter, (i-1));
             bool is_end = GET_IS_END(mmap_lcp_inter, (i-1));
             uint8_t bwt_ch = GET_BWT_CH(mmap_lcp_inter, (i-1));
             size_t doc_of_LF_i = GET_DOC_OF_LF(mmap_lcp_inter, (i-1));
 
-            // If suffix is a run boundary, update its profile if necessary
+            flush_row_of_lcp_table_up(bwt_ch);
+
+            DEBUG_MSG("pos = " << pos << 
+                      ", run_num = " << curr_run_num <<  
+                      ", bwt_ch = " << bwt_ch << 
+                      ", doc = " << doc_of_LF_i << 
+                      ", lcp = " << lcp_i << 
+                      ", suffix_length = " << (ref_build->total_length - pos_of_LF_i));
+
+            // if suffix is a run boundary, update its profile if necessary
             if (is_start || is_end) {
-                initialize_current_row_profile(doc_of_LF_i, curr_da_profile, bwt_ch);
+                //initialize_current_row_profile(doc_of_LF_i, curr_da_profile, bwt_ch);
+                initialize_current_row_profile_lazy_version(doc_of_LF_i, curr_da_profile, bwt_ch);
                 for (size_t j = 0; j < num_docs; j++) {
                     if (GET_DAP(mmap_dap_inter, (dap_ptr+j)) < curr_da_profile[j]){
                         size_t new_lcp_i = std::min((size_t) MAXLCPVALUE, curr_da_profile[j]);
@@ -282,12 +325,14 @@ class pfp_lcp_doc_two_pass {
                     }
                 }
                 dap_ptr -= num_docs;
-                assert(dap_ptr >= 0);
             }
             ch_doc_encountered[bwt_ch][doc_of_LF_i] = true;
-            // Update the predecessor table for next suffix
+
+            // update the predecessor table for next suffix
             size_t lcp_i = GET_LCP(mmap_lcp_inter, (i-1));
-            update_predecessor_max_lcp_table_up(lcp_i, doc_of_LF_i, bwt_ch);
+            //update_predecessor_max_lcp_table_up(lcp_i, doc_of_LF_i, bwt_ch);
+            update_predecessor_max_lcp_table_up_lazy_version(lcp_i, doc_of_LF_i, bwt_ch);
+
         }
         // print out build time
         DONE_LOG((std::chrono::system_clock::now() - start));
@@ -388,8 +433,11 @@ class pfp_lcp_doc_two_pass {
         /***********************************************************/
         std::vector<std::vector<bool>> ch_doc_encountered;
 
-        /* Data-structure to store the max LCP with respect to all previous <ch, doc> pairs */
+        /* data-structure to store the max LCP with respect to all previous <ch, doc> pairs */
         uint16_t** predecessor_max_lcp;
+        uint16_t** predecessor_max_lcp2;
+        uint16_t* dirty_lcp_cache;
+        uint16_t last_updated_row;
 
         /***********************************************************/
         /* This structure contains the raw document array profile 
@@ -398,7 +446,7 @@ class pfp_lcp_doc_two_pass {
         /***********************************************************/
         std::deque<size_t> lcp_queue_profiles;
 
-        /* Variables are used for the intermediate file */
+        /* variables are used for the intermediate file */
         int dap_inter_fd, lcp_inter_fd;
         struct stat file_info_dap_inter;
         struct stat file_info_lcp_inter;
@@ -522,10 +570,12 @@ class pfp_lcp_doc_two_pass {
         }
 
         void update_predecessor_max_lcp_table(size_t lcp_i, size_t total_length, size_t pos_of_LF_i, size_t doc_of_LF_i, uint8_t bwt_ch) {
-            // Update the predecessor lcp table, this allows us to compute the maximum
-            // lcp with respect to all the predecessor occurrences of other documents.
-            // For example: if we are at <A, 2>, we will find the maximum lcp with the 
-            // the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+            /* 
+             * Update the predecessor lcp table, this allows us to compute the maximum
+             * lcp with respect to all the predecessor occurrences of other documents.
+             * For example: if we are at <A, 2>, we will find the maximum lcp with the 
+             * the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+             */
             #if AVX512BW_PRESENT       
                 /*
                 * NOTE: I decided to use the mask store/load because the non-mask
@@ -546,9 +596,12 @@ class pfp_lcp_doc_two_pass {
                 __mmask32 k = ~0; // all 32 bits on, means all 32 values will be written
                 arr2 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &lcp_i_vector[0]);
 
-                std::vector<size_t> dna_chars = {65, 67, 71, 78, 84, 85, 89}; // A, C, G, N, T, U, Y
-                for (size_t ch_num: dna_chars) { // Optimization for DNA
-                //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                //std::vector<size_t> dna_chars = {65, 67, 71, 78, 84, 85, 89}; // A, C, G, N, T, U, Y
+                //for (size_t ch_num: dna_chars) { // Optimization for DNA
+
+                // This loop only iterates over possible uint8_t chars, and 
+                // 0, 1, and 2 are reserved for PFP so the range is [3, 255]
+                for (size_t ch_num = 3; ch_num < 256; ch_num++) {
                     // use SIMD for all groups of 32
                     for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
                         // zero-mask, all the set bit positions are loaded
@@ -558,25 +611,168 @@ class pfp_lcp_doc_two_pass {
                         _mm512_mask_storeu_epi16((__m512i*) &predecessor_max_lcp[ch_num][i], k, arr3); 
                     }
                 }
-                // Reset the LCP with respect to the current <ch, doc> pair
+                // reset the LCP with respect to the current <ch, doc> pair
                 predecessor_max_lcp[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, total_length - pos_of_LF_i);
-            
+
+                // DEBUG: START --------------------------------------------
+
+                // // avoid overflow issues
+                // uint16_t truncated_lcp_i = std::min((size_t) MAXLCPVALUE, lcp_i);
+
+                // // update the dirty lcp table for each character
+                // for (size_t i = 0; i < 256; i++) {
+                //     dirty_lcp_cache[i] = std::min(dirty_lcp_cache[i], truncated_lcp_i);
+                // }
+
+                // // update the position corresponding the previous bwt ch since it was
+                // // set to zero 
+                // if (last_updated_row < 256)
+                //     dirty_lcp_cache[last_updated_row] = truncated_lcp_i;
+                
+                // // update the bwt_ch row of table with minimum lcp since last update
+                // uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+                // //std::cout << "min_lcp_to_flush = " << min_lcp_to_flush << std::endl;
+                // for (size_t i = 0; i < num_docs; i++) {
+                    
+                //     predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                //     //std::cout << "lcp2[" << bwt_ch << "][" << i << "] = " << predecessor_max_lcp2[bwt_ch][i] << std::endl;
+                // }
+                
+                // // update table with length of current suffix
+                // predecessor_max_lcp2[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, total_length-pos_of_LF_i);
+                
+                // // update dirty lcp cache since we have already flush lcp_i to table
+                // dirty_lcp_cache[bwt_ch] = 0;
+                // last_updated_row = bwt_ch;
+                // DEBUG: END ----------------------------------------------
+
             #else                        
                 for (size_t ch_num = 0; ch_num < 256; ch_num++) {
                     for (size_t doc_num = 0; doc_num < num_docs; doc_num++) {
                         predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], (uint16_t) std::min(lcp_i, (size_t) MAXLCPVALUE));
                     }
                 }
-                // Reset the LCP with respect to the current <ch, doc> pair
+                // reset the LCP with respect to the current <ch, doc> pair
                 predecessor_max_lcp[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, total_length - pos_of_LF_i);
+
+
+                // DEBUG: START --------------------------------------------
+
+                // // avoid overflow issues
+                // uint16_t truncated_lcp_i = std::min((size_t) MAXLCPVALUE, lcp_i);
+
+                // // update the dirty lcp table for each character
+                // for (size_t i = 0; i < 256; i++) {
+                //     dirty_lcp_cache[i] = std::min(dirty_lcp_cache[i], truncated_lcp_i);
+                // }
+
+                // // update the position corresponding the previous bwt ch since it was
+                // // set to zero 
+                // if (last_updated_row < 256)
+                //     dirty_lcp_cache[last_updated_row] = truncated_lcp_i;
+                
+                // // update the bwt_ch row of table with minimum lcp since last update
+                // uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+                // for (size_t i = 0; i < (num_blocks_of_32 * 32); i+= 32) {
+                //     predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                // }
+                
+                // // update table with length of current suffix
+                // predecessor_max_lcp2[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, total_length-pos_of_LF_i);
+                
+                // // update dirty lcp cache since we have already flush lcp_i to table
+                // dirty_lcp_cache[bwt_ch] = 0;
+                // last_updated_row = bwt_ch;
+                // DEBUG: END ----------------------------------------------
+
+
+
             #endif
         }
 
+        void update_predecessor_max_lcp_table_lazy_version(size_t lcp_i, size_t total_length, size_t pos_of_LF_i, size_t doc_of_LF_i, uint8_t bwt_ch) {
+            /* 
+             * Update the predecessor lcp table, this allows us to compute the maximum
+             * lcp with respect to all the predecessor occurrences of other documents.
+             * For example: if we are at <A, 2>, we will find the maximum lcp with the 
+             * the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+             */
+
+            // avoid overflow issues
+            uint16_t truncated_lcp_i = std::min((size_t) MAXLCPVALUE, lcp_i);
+
+            // update the dirty lcp table for each character
+            for (size_t i = 0; i < 256; i++) {
+                dirty_lcp_cache[i] = std::min(dirty_lcp_cache[i], truncated_lcp_i);
+            }
+
+            // update the position corresponding the previous bwt_ch since
+            // it was set to zero after flushing the previous lcp_i value
+            if (last_updated_row < 256)
+                dirty_lcp_cache[last_updated_row] = truncated_lcp_i;
+            
+            // use this lcp value update current bwt char
+            uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+
+            #if AVX512BW_PRESENT       
+                /*
+                * NOTE: I decided to use the mask store/load because the non-mask
+                * version of the same function was not present. I looked online and 
+                * found this thread, that describes how you can replicate their function
+                * by using masks which is what I did: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95483
+                * This link was helpful in understanding conditional
+                * load masks: https://www.cs.virginia.edu/~cr4bd/3330/F2018/simdref.html
+                */
+
+                // initialize an lcp_i vector
+                uint16_t lcp_i_vector[32];
+                for (size_t i = 0; i < 32; i++)
+                    lcp_i_vector[i] = min_lcp_to_flush;
+
+                // load the array of constants (lcp_i)
+                __m512i arr1, arr2, arr3; 
+                __mmask32 k = ~0; // all 32 bits on, means all 32 values will be written
+                arr2 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &lcp_i_vector[0]);
+                
+                // // update the bwt_ch row of table with minimum lcp since last update
+                // uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+                // for (size_t i = 0; i < num_docs; i++) {
+                    
+                //     predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                //     //std::cout << "lcp2[" << bwt_ch << "][" << i << "] = " << predecessor_max_lcp2[bwt_ch][i] << std::endl;
+                // }
+
+                // use SIMD for all groups of 32
+                for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
+                    // zero-mask, all the set bit positions are loaded
+                    arr1 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &predecessor_max_lcp2[bwt_ch][i]); 
+                    arr3 = _mm512_min_epu16(arr1, arr2);
+                    _mm512_mask_storeu_epi16((__m512i*) &predecessor_max_lcp2[bwt_ch][i], k, arr3); 
+                }
+                
+            #else                                   
+                // update the bwt_ch row of table with minimum lcp since last update
+                for (size_t i = 0; i < num_docs; i++) {
+                    predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                }
+                
+            #endif   
+
+            // update table with length of current suffix
+            predecessor_max_lcp2[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, total_length-pos_of_LF_i);
+            
+            // update dirty lcp cache since we have already flush lcp_i to table
+            dirty_lcp_cache[bwt_ch] = 0;
+            last_updated_row = bwt_ch;
+        }
+
         void update_predecessor_max_lcp_table_up(size_t lcp_i, size_t doc_of_LF_i, uint8_t bwt_ch) {
-            // Update the predecessor lcp table, this allows us to compute the maximum
-            // lcp with respect to all the predecessor occurrences of other documents.
-            // For example: if we are at <A, 2>, we will find the maximum lcp with the 
-            // the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+            /* 
+             * Update the predecessor lcp table, this allows us to compute the maximum
+             * lcp with respect to all the predecessor occurrences of other documents.
+             * For example: if we are at <A, 2>, we will find the maximum lcp with the 
+             * the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+             */
             #if AVX512BW_PRESENT       
                 /*
                 * NOTE: I decided to use the mask store/load because the non-mask
@@ -600,9 +796,12 @@ class pfp_lcp_doc_two_pass {
                 // Reset the LCP with respect to the current <ch, doc> pair
                 predecessor_max_lcp[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, lcp_i);
 
-                std::vector<size_t> dna_chars = {65, 67, 71, 78, 84, 85, 89}; // A, C, G, N, T, U, Y
-                for (size_t ch_num: dna_chars) { // Optimization for DNA
-                //for (size_t ch_num = 0; ch_num < 256; ch_num++) {
+                //std::vector<size_t> dna_chars = {65, 67, 71, 78, 84, 85, 89}; // A, C, G, N, T, U, Y
+                //for (size_t ch_num: dna_chars) { // Optimization for DNA
+                
+                // This loop only iterates over possible uint8_t chars, and 
+                // 0, 1, and 2 are reserved for PFP so the range is [3, 255]
+                for (size_t ch_num = 3; ch_num < 256; ch_num++) {
                     // use SIMD for all groups of 32
                     for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
                         // zero-mask, all the set bit positions are loaded
@@ -611,7 +810,42 @@ class pfp_lcp_doc_two_pass {
                         arr3 = _mm512_min_epu16(arr1, arr2);
                         _mm512_mask_storeu_epi16((__m512i*) &predecessor_max_lcp[ch_num][i], k, arr3); 
                     }
-                }            
+                }    
+
+                // DEBUG: START --------------------------------------------
+                // uint16_t truncated_lcp_i = std::min((size_t) MAXLCPVALUE, lcp_i);
+                
+                // // update the dirty lcp table for each character
+                // for (size_t i = 0; i < 256; i++) {
+                //     dirty_lcp_cache[i] = std::min(dirty_lcp_cache[i], truncated_lcp_i);
+                // }
+                // dirty_lcp_cache[bwt_ch] = truncated_lcp_i;
+
+
+                // // update the position corresponding the previous bwt ch since it was
+                // // set to zero 
+                // // if (last_updated_row < 256)
+                // //     dirty_lcp_cache[last_updated_row] = truncated_lcp_i;
+
+                // // update table with length of current suffix, because we are 
+                // // going up so we want to update the current suffix with lcp_i
+                // predecessor_max_lcp2[bwt_ch][doc_of_LF_i] = truncated_lcp_i;
+
+                // //std::cout << "initialize: lcp2[" << bwt_ch << "][" << doc_of_LF_i << "] = " << predecessor_max_lcp2[bwt_ch][doc_of_LF_i] << std::endl;
+
+                // // update the bwt_ch row of table with minimum lcp since last update
+                // // uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+                // // for (size_t i = 0; i < num_docs; i++) {
+                // //     predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                // // }
+                // //std::cout << "CHECK: lcp2[" << "T" << "][" << "4" << "] = " << predecessor_max_lcp2['T'][4] << std::endl;
+                // //std::cout << "CHECK: dirty[T] = " << dirty_lcp_cache['T'] << std::endl;
+                       
+                // // update dirty lcp cache since we have already flush lcp_i to table
+                // //dirty_lcp_cache[bwt_ch] = truncated_lcp_i;
+                // //last_updated_row = bwt_ch;
+
+                // DEBUG: END --------------------------------------------        
             #else        
                 // Reset the LCP with respect to the current <ch, doc> pair
                 predecessor_max_lcp[bwt_ch][doc_of_LF_i] = std::min((size_t) MAXLCPVALUE, lcp_i);
@@ -621,28 +855,130 @@ class pfp_lcp_doc_two_pass {
                         predecessor_max_lcp[ch_num][doc_num] = std::min(predecessor_max_lcp[ch_num][doc_num], (uint16_t) std::min(lcp_i, (size_t) MAXLCPVALUE));
                     }
                 }
+
+                // DEBUG: START --------------------------------------------
+                // uint16_t truncated_lcp_i = std::min((size_t) MAXLCPVALUE, lcp_i);
+                
+                // // update the dirty lcp table for each character
+                // for (size_t i = 0; i < 256; i++) {
+                //     dirty_lcp_cache[i] = std::min(dirty_lcp_cache[i], truncated_lcp_i);
+                // }
+                
+                // // update the position corresponding the previous bwt ch since it was
+                // // set to zero 
+                // if (last_updated_row < 256)
+                //     dirty_lcp_cache[last_updated_row] = truncated_lcp_i;
+
+                // // update table with length of current suffix, because we are 
+                // // going up so we want to update the current suffix with lcp_i
+                // predecessor_max_lcp2[bwt_ch][doc_of_LF_i] = truncated_lcp_i;
+
+                // // update the bwt_ch row of table with minimum lcp since last update
+                // uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+                // for (size_t i = 0; i < num_docs; i++) {
+                //     predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                // }
+                       
+                // // update dirty lcp cache since we have already flush lcp_i to table
+                // //dirty_lcp_cache[bwt_ch] = 0;
+                // last_updated_row = bwt_ch;
+
+                // DEBUG: END --------------------------------------------   
+
             #endif    
         }
 
+        void update_predecessor_max_lcp_table_up_lazy_version(size_t lcp_i, size_t doc_of_LF_i, uint8_t bwt_ch) {
+            /* 
+             * Update the predecessor lcp table, this allows us to compute the maximum
+             * lcp with respect to all the predecessor occurrences of other documents.
+             * For example: if we are at <A, 2>, we will find the maximum lcp with the 
+             * the previous occurrences of <A, 0> and <A, 1> for 3 documents.
+             */
+            uint16_t truncated_lcp_i = std::min((size_t) MAXLCPVALUE, lcp_i);
+            
+            // update the dirty lcp table for each character
+            for (size_t i = 0; i < 256; i++) {
+                dirty_lcp_cache[i] = std::min(dirty_lcp_cache[i], truncated_lcp_i);
+            }
+            dirty_lcp_cache[bwt_ch] = truncated_lcp_i;
+            predecessor_max_lcp2[bwt_ch][doc_of_LF_i] = truncated_lcp_i;
+        }
+
+        void flush_row_of_lcp_table_up(uint8_t bwt_ch) {
+            uint16_t min_lcp_to_flush = dirty_lcp_cache[bwt_ch];
+            #if AVX512BW_PRESENT
+                // initialize an lcp_i vector
+                uint16_t lcp_i_vector[32];
+                for (size_t i = 0; i < 32; i++)
+                    lcp_i_vector[i] = min_lcp_to_flush;
+
+                // load the array of constants (lcp_i)
+                __m512i arr1, arr2, arr3; 
+                __mmask32 k = ~0; // all 32 bits on, means all 32 values will be written
+                arr2 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &lcp_i_vector[0]);          
+
+                // use SIMD for all groups of 32
+                for (size_t i = 0; i < (num_blocks_of_32 * 32); i+=32) {
+                    // zero-mask, all the set bit positions are loaded
+                    arr1 = _mm512_maskz_loadu_epi16(~0, (const __m512i*) &predecessor_max_lcp2[bwt_ch][i]); 
+                    arr3 = _mm512_min_epu16(arr1, arr2);
+                    _mm512_mask_storeu_epi16((__m512i*) &predecessor_max_lcp2[bwt_ch][i], k, arr3); 
+                }
+
+            #else
+                for (size_t i = 0; i < num_docs; i++) {
+                    predecessor_max_lcp2[bwt_ch][i] = std::min(predecessor_max_lcp2[bwt_ch][i], min_lcp_to_flush);
+                }
+            #endif
+        }
+
         void initialize_current_row_profile(size_t doc_of_LF_i, std::vector<size_t>& curr_da_profile, uint8_t bwt_ch){
-            // Initialize the curr_da_profile with max lcp for predecessor 
-            // occurrences of the same BWT character from another document, and
-            // we check and make sure they occurred to avoid initializing it
-            // with 1 (0 + 1 = 1)
+            /* 
+             * Initialize the curr_da_profile with max lcp for predecessor 
+             * occurrences of the same BWT character from another document, and
+             * we check and make sure they occurred to avoid initializing it
+             * with 1 (0 + 1 = 1)
+             */
+             //std::cout << "initialize: bwt_ch = " << bwt_ch << ", ";
             for (size_t i = 0; i < num_docs; i++) {
-                if (i != doc_of_LF_i && ch_doc_encountered[bwt_ch][i])
+                if (i != doc_of_LF_i && ch_doc_encountered[bwt_ch][i]) {
                     curr_da_profile[i] = predecessor_max_lcp[bwt_ch][i] + 1;
+                    
+                    // if (predecessor_max_lcp[bwt_ch][i] != predecessor_max_lcp2[bwt_ch][i]) {
+                    //     std::cout << "lcp[" << bwt_ch << "][" << i << "] = " << predecessor_max_lcp[bwt_ch][i] << ", ";
+                    //     std::cout << "lcp2[" << bwt_ch << "][" << i << "] = " << predecessor_max_lcp2[bwt_ch][i] << ", \n";
+                    //     std::cout << "j = " << j << std::endl;
+                    // }
+                    
+                    // ASSERT((predecessor_max_lcp[bwt_ch][i] == predecessor_max_lcp2[bwt_ch][i]),
+                    //         "difference found.");
+                }
+            }
+        }
+
+        void initialize_current_row_profile_lazy_version(size_t doc_of_LF_i, std::vector<size_t>& curr_da_profile, uint8_t bwt_ch){
+            /* 
+             * Initialize the curr_da_profile with max lcp for predecessor 
+             * occurrences of the same BWT character from another document, and
+             * we check and make sure they occurred to avoid initializing it
+             * with 1 (0 + 1 = 1)
+             */
+            for (size_t i = 0; i < num_docs; i++) {
+                if (i != doc_of_LF_i && ch_doc_encountered[bwt_ch][i]) {
+                    curr_da_profile[i] = predecessor_max_lcp2[bwt_ch][i] + 1;
+                }
             }
         }
 
         void write_data_to_temp_file(temp_data_entry_t data_entry) {
-            /* Write to temp lcp queue data to the file */
+            /* write to temp lcp queue data to the file */
             size_t start_pos = num_lcp_temp_data * TEMPDATA_RECORD;
             mmap_lcp_inter[start_pos] = 0x00 | (data_entry.is_start << 1)  | (data_entry.is_end);
             mmap_lcp_inter[start_pos + 1] = data_entry.bwt_ch;
             
             // little-endian orientation
-            assert(data_entry.doc_num < MAXDOCS);
+            ASSERT((data_entry.doc_num < MAXDOCS), "invalid document number encountered when writing temp file.");
             mmap_lcp_inter[start_pos + 2] = (data_entry.doc_num & 0xFF);
             mmap_lcp_inter[start_pos + 3] = (data_entry.doc_num & (0xFF << 8)) >> 8;
 
@@ -651,7 +987,7 @@ class pfp_lcp_doc_two_pass {
             mmap_lcp_inter[start_pos + 5] = (new_lcp_i & (0xFF << 8)) >> 8;
             
             num_lcp_temp_data += 1;
-            assert(max_lcp_records >= num_lcp_temp_data);
+            ASSERT((max_lcp_records > num_lcp_temp_data), "the space in the temporary file has been used up.");
         }
 
         void write_profile_to_temp_file(std::vector<size_t>& curr_prof) {
@@ -663,7 +999,8 @@ class pfp_lcp_doc_two_pass {
                 mmap_dap_inter[start_pos + (i*DOCWIDTH) + 1] = ((0xFF << 8) & curr_lcp) >> 8;
             } 
             num_dap_temp_data += curr_prof.size();
-            assert(max_dap_records >= (num_dap_temp_data+num_docs));
+            ASSERT((max_dap_records > (num_dap_temp_data+num_docs)), 
+                    "the space in the document array temp file has been used up.");
         }
 
         void delete_temp_files(std::string filename) {
@@ -1019,7 +1356,6 @@ class pfp_lcp_doc_two_pass {
                 length = 0;
             }
             length += length_;
-
         }
 };
 
