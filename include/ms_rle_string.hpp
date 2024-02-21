@@ -25,9 +25,8 @@
 #define _MS_RLE_STRING_HH
 
 #include <common.hpp>
-
 #include <rle_string.hpp>
-
+#include <bitset>
 
 template <
     class sparse_bitvector_t = ri::sparse_sd_vector, //predecessor structure storing run length
@@ -36,12 +35,9 @@ template <
 class ms_rle_string : public ri::rle_string<sparse_bitvector_t, string_t>
 {
     public:
+        static const u_char TERMINATOR = 1;
 
-    ms_rle_string() : 
-        ri::rle_string<sparse_bitvector_t, string_t>()
-    {
-        //NtD
-    }
+    ms_rle_string():ri::rle_string<sparse_bitvector_t, string_t>() {}
 
     /*
      * constructor: build structure on the input string
@@ -49,30 +45,22 @@ class ms_rle_string : public ri::rle_string<sparse_bitvector_t, string_t>
      * \param B block size. The main sparse bitvector has R/B bits set (R being number of runs)
      *
      */
-    ms_rle_string(string &input, ulint B = 2) : 
-        ri::rle_string<sparse_bitvector_t, string_t>(input, B)
-    {
-        // NtD
-    }
+    ms_rle_string(string &input, ulint B = 2): ri::rle_string<sparse_bitvector_t, string_t>(input, B) {}
 
-    ms_rle_string(std::ifstream &ifs, ulint B = 2) : 
-        ri::rle_string<sparse_bitvector_t, string_t>(ifs, B)
-    {
-
-    }
+    ms_rle_string(std::ifstream &ifs, ulint B = 2): ri::rle_string<sparse_bitvector_t, string_t>(ifs, B) {}
 
     // Construction from run-length encoded BWT
     ms_rle_string(std::ifstream& heads, std::ifstream& lengths, ulint B = 2) {
         heads.clear(); heads.seekg(0);
         lengths.clear(); lengths.seekg(0);
-        // assert(not contains0(input)); // We're hacking the 0 away :)
+
         this->B = B;
-        // n = input.size();
         auto runs_per_letter_bv = vector<vector<bool> >(256);
+
         //runs in main bitvector
         vector<bool> runs_bv;
 
-        // Reads the run heads
+        // Reads the run heads file
         string run_heads_s;
         heads.seekg(0, heads.end);
         run_heads_s.resize(heads.tellg());
@@ -82,37 +70,71 @@ class ms_rle_string : public ri::rle_string<sparse_bitvector_t, string_t>
         size_t pos = 0;
         this->n = 0;
         this->R = run_heads_s.size();
+
         // Compute runs_bv and runs_per_letter_bv
         for (size_t i = 0; i < run_heads_s.size(); ++i)
         {
             size_t length = 0;
             lengths.read((char*)&length, 5);
-            if(run_heads_s[i]<=TERMINATOR) // change 0 to 1
+            
+            // fixed old bug since previous version did not
+            // have the unsigned(), otherwise it will be 
+            // treated as signed char
+            uint8_t curr_ch = unsigned(run_heads_s[i]);
+            if(curr_ch <= TERMINATOR) { // change 0 to 1
                 run_heads_s[i]=TERMINATOR;
+            }
 
-            std::fill_n( std::back_inserter(runs_bv), length-1, false);
+            std::fill_n(std::back_inserter(runs_bv), length-1, false);
             runs_bv.push_back(i%B==B-1);
 
-            std::fill_n( std::back_inserter(runs_per_letter_bv[run_heads_s[i]]), length-1, false);
-            runs_per_letter_bv[run_heads_s[i]].push_back(true);
+            std::fill_n(std::back_inserter(runs_per_letter_bv[curr_ch]), length-1, false);
+            runs_per_letter_bv[curr_ch].push_back(true);
 
             this->n += length;
         }
         runs_bv.push_back(false);
 
+        if (runs_bv.size() != (this->n + 1)) {
+            std::cout << "Assertion Error: runs_bv.size() should equal n." << std::endl;
+            std::exit(1);
+        }
+
         //now compact structures
-        assert(runs_bv.size()==this->n);
         ulint t = 0;
         for(ulint i=0;i<256;++i)
             t += runs_per_letter_bv[i].size();
-        assert(t==this->n);
+        
+        if (t != this->n) {
+            std::cout << "Assertion Error: t != n" << std::endl;
+            std::exit(1);
+        }
+
+        // construct the runs data-structure
         this->runs = sparse_bitvector_t(runs_bv);
-        //a fast direct array: char -> bitvector.
+
+        // fast direct array: char -> bitvector.
         this->runs_per_letter = vector<sparse_bitvector_t>(256);
         for(ulint i=0;i<256;++i)
             this->runs_per_letter[i] = sparse_bitvector_t(runs_per_letter_bv[i]);
+
+        // construct the huffman wavelet tree
         this->run_heads = string_t(run_heads_s);
-        assert(this->run_heads.size()==this->R);
+
+        if (this->run_heads.size() != this->R) {
+            std::cout << "Assertion Error: run_heads.size() != R" << std::endl;
+            std::exit(1);
+        }
+        
+
+        // debugging:
+        // for (size_t i = 0; i < 256; i++) {
+        //     std::cout << "ms_rle_string: i = " << i << ", length = " << this->runs_per_letter[i].size() << std::endl;
+        // }   
+        // std::cout << "wt-tree size: " << this->run_heads.size() << std::endl;
+        // for (size_t i = 0; i < 256; i++) {
+        //     std::cout << "ms_rle_string: i = " << i << ", huff.rank() = " << this->run_heads.rank(this->run_heads.size(), i) << std::endl;
+        // }
     }
 
     size_t number_of_runs_of_letter(uint8_t c)

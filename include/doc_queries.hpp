@@ -774,7 +774,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 for (; j>=0; j--) {
                     // get character, keep in mind it is already capitalized
                     uint8_t next_ch = curr_seq[j];
-                    //std::cout << "next_ch = " << unsigned(next_ch) << std::endl;
 
                     // identify the run # for start and end
                     size_t num_ch_before_start = this->bwt.rank(start, next_ch);
@@ -829,15 +828,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     num_found++;
                 }
 
-                // std::cout << "not_found = " << not_found 
-                //           << ", start = " << start 
-                //           << ", end = " << end 
-                //           << ", curr_prof_pos = " << curr_prof_pos 
-                //           << ", use_start = " << use_start 
-                //           << ", use_end = " << use_end 
-                //           << ", curr_prof_ch = " << curr_prof_ch 
-                //           << ", LF_steps = " << num_LF_steps << std::endl;
-
                 // write out the first three elements of ftab entry
                 size_t start_pos = loop_index * FTAB_ENTRY_SIZE;
                 ASSERT((sizeof(size_t) == 8), "issue occurred when checking size_t size");
@@ -871,7 +861,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     }
                     curr_ch = curr_seq[curr_seq.size()-1];
                     temp_str += std::to_string(curr_ch);
-
                     curr_seq = temp_str;
                 }
 
@@ -894,17 +883,18 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             return std::make_pair(num_found, num_not_found);
         }
 
-        void load_ftab_from_file() {
+        void load_ftab_from_file(bool minimizer_alp) {
             /* loads ftab from a file into a vector structure that can used during query */
-            check_ftab_file();
+            check_ftab_file(minimizer_alp);
 
             STATUS_LOG("query_main", "loading the ftab structure");
             auto start = std::chrono::system_clock::now();
-            read_ftab_file();
+            read_ftab_file(minimizer_alp);
 
             DONE_LOG((std::chrono::system_clock::now() - start));
             FORCE_LOG("query_main", "number of entries in ftab: %ld" , ftab.size());
             std::cerr << "\n";
+            std::exit(1);
         }
 
     private:
@@ -940,7 +930,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 std::ifstream ifs_len(bwt_len_fname);
 
                 this->bwt = rle_string_t(ifs_heads, ifs_len);
-
+   
                 ifs_heads.seekg(0);
                 ifs_len.seekg(0);
                 this->build_F_(ifs_heads, ifs_len);
@@ -1041,7 +1031,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 dap_csv_file.close();
         }
 
-        void check_ftab_file() {
+        void check_ftab_file(bool minimizer_alp) {
             /* makes sure the ftab file is the correct length */
             struct stat filestat;
             FILE *fd;
@@ -1054,11 +1044,16 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             fclose(fd);
 
             size_t expected_size = FTAB_ENTRY_SIZE * std::pow(FTAB_ALPHABET_SIZE, FTAB_ENTRY_LENGTH);
+
+            // update the size if using minimizer alph.
+            if (minimizer_alp)
+                expected_size = FTAB_ENTRY_SIZE * std::pow(FTAB_ALPHABET_SIZE_MIN, FTAB_ENTRY_LENGTH_MIN);
+
             if (filestat.st_size != (expected_size))
                 FATAL_ERROR("invalid file size for *.ftab files");  
         }
 
-        void read_ftab_file() {
+        void read_ftab_file(bool minimizer_alp) {
             /* load ftab into vector for usage */
 
             // open the ftab file
@@ -1074,27 +1069,29 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             // go through reach entry in the ftab, and add to vector
             size_t num_entries = std::pow(FTAB_ALPHABET_SIZE, FTAB_ENTRY_LENGTH);
+            if (minimizer_alp) {num_entries = std::pow(FTAB_ALPHABET_SIZE_MIN, FTAB_ENTRY_LENGTH_MIN);}
+
             for (int i = 0; i < num_entries; i++) {
                 // read the current record
                 if (fread(&start, sizeof(size_t), 1, fd) != 1)
-                    FATAL_ERROR("issue occurred when reading from ftab file.");
+                    FATAL_ERROR("issue occurred when reading from ftab file. (1)");
                 if (fread(&end, sizeof(size_t), 1, fd) != 1)
-                    FATAL_ERROR("issue occurred when reading from ftab file.");
+                    FATAL_ERROR("issue occurred when reading from ftab file. (2)");
                 if (fread(&pos, sizeof(size_t), 1, fd) != 1)
-                    FATAL_ERROR("issue occurred when reading from ftab file.");
+                    FATAL_ERROR("issue occurred when reading from ftab file. (3)");
                 if (fread(&num_LF_steps, 1, 1, fd) != 1)
-                    FATAL_ERROR("issue occurred when reading from ftab file.");
+                    FATAL_ERROR("issue occurred when reading from ftab file. (4)");
                 if (fread(&bwt_ch, 1, 1, fd) != 1)
-                    FATAL_ERROR("issue occurred when reading from ftab file.");
+                    FATAL_ERROR("issue occurred when reading from ftab file. (5)");
                 
                 use_start = num_LF_steps & (1 << 7);
                 use_end = num_LF_steps & (1 << 6);
                 num_LF_steps = num_LF_steps & 0x3F; // ignore top two bits
 
                 ASSERT(((unsigned(num_LF_steps) < FTAB_ENTRY_LENGTH)), 
-                        "issue occurred when loading ftab. (1)");
-                ASSERT((use_start || use_end),
-                        "issue occurred when loading ftab. (2)");
+                        "issue occurred when loading ftab. (6)");
+                ASSERT((use_start || use_end || (start > end)),
+                        "issue occurred when loading ftab. (7)");
 
                 // add current entry to table
                 std::vector<size_t> curr_entry {start, end, pos, num_LF_steps, bwt_ch, use_start, use_end};

@@ -153,13 +153,14 @@ int run_main(int argc, char** argv) {
     parse_run_options(argc, argv, &run_opts);
     run_opts.validate();
 
+
     if (!run_opts.use_taxcomp && !run_opts.use_topk) {
         // build the doc_queries object (load data-structures)
         doc_queries doc_queries_obj (run_opts.ref_file);
 
         // query reads, load ftab structure if we want to use it
         if (run_opts.use_ftab) {
-            doc_queries_obj.load_ftab_from_file();
+            doc_queries_obj.load_ftab_from_file(run_opts.use_minimizers);
             doc_queries_obj.query_profiles_with_ftab(run_opts.pattern_file, run_opts.output_prefix);
         } else if (run_opts.use_optimized) {
             doc_queries_obj.query_profiles_optimized(run_opts.pattern_file, run_opts.output_prefix);
@@ -358,8 +359,8 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"tmp-size", required_argument, NULL, 's'},
         {"small-window", required_argument, NULL, 'b'},
         {"large-window", required_argument, NULL, 'c'},
-        {"minimizer", no_argument, NULL, 'i'},
-        {"dna-minimizer", no_argument, NULL, 'j'},
+        {"minimizers", no_argument, NULL, 'i'},
+        {"dna-minimizers", no_argument, NULL, 'j'},
         {0, 0, 0,  0}
     };
 
@@ -403,12 +404,16 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
         {"num-col",   required_argument, NULL,  'c'},
         {"ftab", no_argument,     NULL, 'f'},
         {"optimized", no_argument, NULL, 'z'},
+        {"small-window", required_argument, NULL, 'K'},
+        {"large-window", required_argument, NULL, 'W'},
+        {"minimizers", no_argument, NULL, 'i'},
+        {"dna-minimizers", no_argument, NULL, 'j'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:fz", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hr:p:o:sl:tkc:fzK:W:ij", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_run_usage(); std::exit(1);
             case 'r': opts->ref_file.assign(optarg); break;
@@ -421,6 +426,10 @@ void parse_run_options(int argc, char** argv, PFPDocRunOptions* opts) {
             case 'c': opts->num_cols = std::atoi(optarg); break;
             case 'f': opts->use_ftab = true; break;
             case 'z': opts->use_optimized = true; break;
+            case 'i': opts->use_minimizers = true; break;
+            case 'j': opts->use_dna_minimizers = true; break;
+            case 'K': opts->small_window_l = std::atoi(optarg); break;
+            case 'W': opts->large_window_l = std::atoi(optarg); break;
             default: pfpdoc_run_usage(); std::exit(1);
         }
     }
@@ -493,20 +502,25 @@ int pfpdoc_run_usage() {
     std::fprintf(stderr, "Usage: pfp_doc run [options]\n\n");
 
     std::fprintf(stderr, "Options:\n");
-    std::fprintf(stderr, "\t%-28sprints this usage message\n", "-h, --help");
-    std::fprintf(stderr, "\t%-18s%-10spath to the input reference file\n", "-r, --ref", "[arg]");
-    std::fprintf(stderr, "\t%-18s%-10spath to the pattern file\n", "-p, --pattern", "[arg]");
-    std::fprintf(stderr, "\t%-18s%-10soutput path prefix\n\n", "-o, --output", "[arg]");
+    std::fprintf(stderr, "\t%-31sprints this usage message\n", "-h, --help");
+    std::fprintf(stderr, "\t%-21s%-10spath to the input reference file\n", "-r, --ref", "[arg]");
+    std::fprintf(stderr, "\t%-21s%-10spath to the pattern file\n", "-p, --pattern", "[arg]");
+    std::fprintf(stderr, "\t%-21s%-10soutput path prefix\n\n", "-o, --output", "[arg]");
 
-    std::fprintf(stderr, "\t%-28swrite data-structures to disk\n", "-s, --write");
-    std::fprintf(stderr, "\t%-18s%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l, --length", "[arg]");
+    std::fprintf(stderr, "\t%-31sload document array that is 'taxonomic' compressed (default: false)\n", "-t, --taxcomp");
+    std::fprintf(stderr, "\t%-31sload document array that is 'top-k' compressed (default: false)\n", "-k, --top-k");
+    std::fprintf(stderr, "\t%-21s%-10snumber of columns used in main table\n\n", "-c, --num-col", "[arg]");
 
-    std::fprintf(stderr, "\t%-28sload document array that is 'taxonomic' compressed (default: false)\n", "-t, --taxcomp");
-    std::fprintf(stderr, "\t%-28sload document array that is 'top-k' compressed (default: false)\n", "-k, --top-k");
-    std::fprintf(stderr, "\t%-18s%-10snumber of columns used in main table\n\n", "-c, --num-col", "[arg]");
+    std::fprintf(stderr, "\t%-21s%-10sdigest the reference using minimizer-alphabet minimizers\n", "-i, --minimizers", "");
+    std::fprintf(stderr, "\t%-21s%-10sdigest the reference using DNA-alphabet minimizers\n", "-j, --dna-minimizers", "");
+    std::fprintf(stderr, "\t%-21s%-10ssize of small window used for finding minimizers (default: 4)\n", "-K, --small-window", "[INT]");
+    std::fprintf(stderr, "\t%-21s%-10ssize of large window used for finding minimizers (default: 11)\n\n", "-W, --large-window", "[INT]");
 
-    std::fprintf(stderr, "\t%-28suse ftab to speed up querying (default: false)\n", "-f, --ftab");
-    std::fprintf(stderr, "\t%-28suse optimized version of querying (default: false)\n\n", "-z, --optimized");
+    std::fprintf(stderr, "\t%-31suse ftab to speed up querying (default: false)\n", "-f, --ftab");
+    std::fprintf(stderr, "\t%-31suse optimized version of querying (default: false)\n\n", "-z, --optimized");
+
+    std::fprintf(stderr, "\t%-31swrite data-structures to disk\n", "-s, --write");
+    std::fprintf(stderr, "\t%-21s%-10supper-bound on read length (used to shrink size of index using -s)\n\n", "-l, --length", "[arg]");
     
     return 0;
 }

@@ -242,6 +242,11 @@ struct PFPDocRunOptions {
         bool use_topk = false;
         bool use_ftab = false;
         bool use_optimized = false;
+
+        bool use_minimizers = false;
+        bool use_dna_minimizers = false;
+        size_t small_window_l = 4;
+        size_t large_window_l = 11;
     
     void validate() {
         /* checks arguments and makes sure they are valid files */
@@ -287,6 +292,18 @@ struct PFPDocRunOptions {
         // check if the user provided a number of columns for table
         if ((use_taxcomp || use_topk) && (num_cols < 1 || num_cols > 20))
             FATAL_ERROR("the number of columns in the document array is not valid or not provided.");
+
+        // only one type of minimizer digestion can be used
+        if (use_minimizers && use_dna_minimizers)
+            FATAL_ERROR("cannot use both minimizer-alphabet and DNA-alphabet minimizers.");
+
+        // smaller window of minimizer scheme must be smaller than larger window
+        if (small_window_l > large_window_l)
+            FATAL_ERROR("small window of minimizer scheme cannot be larger than the large window.");
+
+        // make sure small window is 4 if using minimizer alphabet
+        if (use_minimizers && small_window_l != 4)
+            FATAL_ERROR("when using minimizer alphabet, the small window must be set to 4.");
     }
 };
 
