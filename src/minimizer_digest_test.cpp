@@ -121,7 +121,7 @@ void test10() {
 
 void run_exp1(size_t k, bool use_minimizer_alp) {
     // experiment 1: try using k with various large windows
-    size_t input_length = 1000000;
+    size_t input_length = 1000000000;
     std::string full_dna_seq = generate_random_dna_string(input_length);
     size_t input_size = full_dna_seq.size();
 
@@ -163,8 +163,8 @@ int main() {
     std::cout << "\n";
 
     // experiments
-    run_exp1(7, false); std::cout << "\n";
-    run_exp1(31, false); std::cout << "\n";
+    //run_exp1(7, false); std::cout << "\n";
+    //run_exp1(31, false); std::cout << "\n";
     run_exp1(4, true); std::cout << "\n";
 
     return 0;
