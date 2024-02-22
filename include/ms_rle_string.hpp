@@ -83,6 +83,7 @@ class ms_rle_string : public ri::rle_string<sparse_bitvector_t, string_t>
             uint8_t curr_ch = unsigned(run_heads_s[i]);
             if(curr_ch <= TERMINATOR) { // change 0 to 1
                 run_heads_s[i]=TERMINATOR;
+                curr_ch = TERMINATOR;
             }
 
             std::fill_n(std::back_inserter(runs_bv), length-1, false);
