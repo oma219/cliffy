@@ -32,6 +32,15 @@ MinimizerDigest::MinimizerDigest(uint64_t k, uint64_t w, bool lex_order, bool mi
     ASSERT((w >= k), "the large-window size cannot be smaller than small-window size.");
 
     // initialize the lookup table 
+    this->inititalize_lookup_table();
+}
+
+MinimizerDigest::MinimizerDigest() {
+    this->inititalize_lookup_table();
+}
+
+void MinimizerDigest::inititalize_lookup_table() {
+    // initialize the lookup table 
     for (size_t i = 0; i < UINT8_MAX; i++){
         lookup_table[i] = UINT8_MAX;
     }
@@ -44,6 +53,18 @@ MinimizerDigest::MinimizerDigest(uint64_t k, uint64_t w, bool lex_order, bool mi
 void MinimizerDigest::update_lookup_table(char ch, uint8_t val) {
     lookup_table[ch] = val;
     lookup_table[std::tolower(ch)] = val;
+}
+
+void MinimizerDigest::set_windows(uint64_t k, uint64_t w) {
+    this->k = k;
+    this->w = w;
+
+    // make sure the small window size is not too large
+    uint64_t limit = ((sizeof(uint64_t) * 8 - 1)/BITS_PER_CHAR);
+    if (k > limit) {FATAL_ERROR("the small-window size provided is too large.");}
+
+    // make sure the large window size is larger
+    ASSERT((w >= k), "the large-window size cannot be smaller than small-window size.");
 }
 
 std::string MinimizerDigest::compute_digest(std::string input_seq) {

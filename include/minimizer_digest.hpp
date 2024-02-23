@@ -31,21 +31,26 @@ struct MinimizerData {
 
 class MinimizerDigest {
     public:
+        MinimizerDigest();
         MinimizerDigest(uint64_t k, uint64_t w, bool lex_order=true, bool minimizer_alp=false);
 
         std::string compute_digest(std::string input_seq);
         uint64_t get_k() {return k;}
         uint64_t get_w() {return w;}
+        void set_windows(uint64_t k, uint64_t w);
+        void set_lexorder(bool status) {this->lex_order = status;}
+        void set_minimizer_alp(bool status) {this->minimizer_alp = status;}
     private:
-        uint64_t k;
-        uint64_t w;
+        uint64_t k = 0;
+        uint64_t w = 0;
         uint8_t lookup_table[UINT8_MAX+1];
         uint64_t loaded_kmers;
-        bool lex_order;
-        bool minimizer_alp;
+        bool lex_order = true;
+        bool minimizer_alp = false;
         std::vector<MinimizerData> queue;
 
         void update_lookup_table(char ch, uint8_t val);
+        void inititalize_lookup_table();
 };
 
 #endif /* end of include guard: _MINIMIZER_DIGEST_H */
