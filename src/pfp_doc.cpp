@@ -153,6 +153,10 @@ int run_main(int argc, char** argv) {
     parse_run_options(argc, argv, &run_opts);
     run_opts.validate();
 
+    // set enum variable to be used for downstream objects
+    ref_type database_type = DNA;
+    if (run_opts.use_minimizers) database_type = MINIMIZER;
+    else if (run_opts.use_dna_minimizers) database_type = DNA_MINIMIZER;
 
     if (!run_opts.use_taxcomp && !run_opts.use_topk) {
         // build the doc_queries object (load data-structures)
@@ -161,11 +165,23 @@ int run_main(int argc, char** argv) {
         // query reads, load ftab structure if we want to use it
         if (run_opts.use_ftab) {
             doc_queries_obj.load_ftab_from_file(run_opts.use_minimizers);
-            doc_queries_obj.query_profiles_with_ftab(run_opts.pattern_file, run_opts.output_prefix);
+            doc_queries_obj.query_profiles_with_ftab(run_opts.pattern_file, 
+                                                     run_opts.output_prefix,
+                                                     database_type,
+                                                     run_opts.small_window_l,
+                                                     run_opts.large_window_l);
         } else if (run_opts.use_optimized) {
-            doc_queries_obj.query_profiles_optimized(run_opts.pattern_file, run_opts.output_prefix);
+            doc_queries_obj.query_profiles_optimized(run_opts.pattern_file, 
+                                                     run_opts.output_prefix,
+                                                     database_type,
+                                                     run_opts.small_window_l,
+                                                     run_opts.large_window_l);
         } else {
-            doc_queries_obj.query_profiles(run_opts.pattern_file, run_opts.output_prefix);
+            doc_queries_obj.query_profiles(run_opts.pattern_file, 
+                                          run_opts.output_prefix,
+                                          database_type,
+                                          run_opts.small_window_l,
+                                          run_opts.large_window_l);
         }
         
         // write index to disk

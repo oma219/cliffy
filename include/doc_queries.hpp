@@ -16,6 +16,7 @@
 #include <ms_rle_string.hpp>
 #include <pfp_doc.hpp>
 #include <string>
+#include <minimizer_digest.hpp>
 
 template <class sparse_bv_type = ri::sparse_sd_vector,
           class rle_string_t = ms_rle_string_sd>
@@ -67,7 +68,11 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             std::cerr << "\n";
         }
 
-        void query_profiles(std::string pattern_file, std::string output_prefix){
+        void query_profiles(std::string pattern_file, 
+                            std::string output_prefix,
+                            ref_type database_type,
+                            size_t small_window_l,
+                            size_t large_window_l){
             /* Takes in a file of reads, and lists all the documents containing the read */
 
             STATUS_LOG("query_main", "processing the patterns");
@@ -102,35 +107,83 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     listings_fd << output_str;
             };
 
+            // build minimizer digest object (only used if needed)
+            MinimizerDigest digester; 
+            digester.set_lexorder(false);
+            digester.set_windows(small_window_l, large_window_l);
+            if (database_type == MINIMIZER) digester.set_minimizer_alp(true);
+
             // process each read, and print out the document lists
             while (kseq_read(seq)>=0) {
-                
-                // initialize variables to use for backward search
-                size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
-                std::vector<uint16_t> curr_profile (this->num_docs, 0);
-                uint16_t length = 0;
+                // uppercase every letter in read
+                for (int j = 0; j < seq->seq.l; j++) {seq->seq.s[j] = up_tab[(int) seq->seq.s[j]];}
+
+                // digest read if needed
+                std::string input_read = seq->seq.s;
+                size_t read_length = 0;
+
+                if (database_type == DNA_MINIMIZER) {input_read = digester.compute_digest(input_read);}
+                else if (database_type == MINIMIZER) {input_read = digester.compute_digest(input_read);}
+                read_length = input_read.size();
 
                 listings_fd << ">" << seq->name.s << "\n";
+                
+                // initialize variables to use for backward search
+                size_t start = 0, end = this->bwt.size(), end_pos_of_match = read_length-1;
+                size_t start_run = 0, end_run = this->r - 1;
+                size_t num_ch_before_start = 0, num_ch_before_end = 0;
+                std::vector<uint16_t> curr_profile (this->num_docs, 0);
+                uint16_t length = 0;
 
                 // pointer variables to current profile being "used"
                 uint8_t curr_prof_ch = 0;
                 size_t curr_prof_pos = 0, num_LF_steps = 0;
 
                 // tell us what type of profile to grab based on pointer variables
-                bool use_start = false, use_end = false;
+                bool use_start = false, use_end = false; bool pointer_set = false;
 
                 // perform backward search and report document listings when
                 // range goes empty or we reach the end
-                for (int i = (seq->seq.l-1); i >= 0; i--) {
+                for (int i = (read_length-1); i >= 0; i--) {
 
                     // Uppercase the letter prior to using it
-                    uint8_t next_ch = up_tab[(int) seq->seq.s[i]];
+                    uint8_t next_ch = input_read[i];
+
+                    if (this->bwt.number_of_letter(next_ch) == 0) {
+                        // step 1: print listing for [i+1,end]
+                        if (pointer_set) {
+                            if (use_end)
+                                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            else
+                                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
+
+                            listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
+
+                            length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                            process_profile(curr_profile, length);
+                            end_pos_of_match = i;
+                        }
+                        // step 2: print an empty listing for current character
+                        listings_fd << "[" << i << "," << i << "] {} ";
+                        end_pos_of_match = i - 1;
+
+                        // step 3: reset variables to full bwt range
+                        start = 0; end = this->bwt.size();
+                        start_run = 0; end_run = this->r - 1;
+                        num_ch_before_start = 0;
+                        num_ch_before_end = 0;
+
+                        // step 4: reset pointer and go back to top of loop
+                        pointer_set = false;
+                        continue;
+                    }
 
                     // Identify the run # that start and end are in
-                    size_t num_ch_before_start = this->bwt.rank(start, next_ch); 
-                    size_t num_ch_before_end = this->bwt.rank(end, next_ch);
-                    size_t start_run = this->bwt.run_of_position(start);
-                    size_t end_run = this->bwt.run_of_position(end-1);
+                    num_ch_before_start = this->bwt.rank(start, next_ch); 
+                    num_ch_before_end = this->bwt.rank(end, next_ch);
+                    start_run = this->bwt.run_of_position(start);
+                    end_run = this->bwt.run_of_position(end-1);
                     
                     // range spans runs, so there are different BWT characters
                     if (start_run != end_run) 
@@ -162,6 +215,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
                         num_LF_steps = 0;
                         use_start = false; use_end = false;
+                        pointer_set = true;
 
                         // if the start position run is the same as query
                         // ch, then we can guarantee that end of run is in the range
@@ -197,6 +251,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
                         num_LF_steps = 0;
                         use_start = false; use_end = false;
+                        pointer_set = true;
 
                         // if the start position run is the same as query
                         // ch, then we can guarantee that end of run is in the range
@@ -234,7 +289,11 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             DONE_LOG((std::chrono::system_clock::now() - start_time));
         }
 
-        void query_profiles_optimized(std::string pattern_file, std::string output_prefix) {
+        void query_profiles_optimized(std::string pattern_file, 
+                                      std::string output_prefix,
+                                      ref_type database_type,
+                                      size_t small_window_l,
+                                      size_t large_window_l) {
             /* query reads using the ftab to accelerate queries */
 
             STATUS_LOG("query_main", "processing the patterns");
@@ -249,13 +308,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             seq = kseq_init(fp);
 
             // initialize variables for backward search
-            size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
+            size_t start = 0, end = this->bwt.size(), end_pos_of_match = 0;
             size_t start_run = 0, end_run = 0;
             size_t num_ch_before_start = 0, num_ch_before_end = 0;
 
             std::vector<uint16_t> curr_profile (this->num_docs, 0);
             uint16_t length = 0; uint8_t next_ch = 0;
-            int i = 0;
+            int i = 0; size_t read_length = 0;
+            bool pointer_set = false;
 
             // initialize variables for identifying correct document array profile
             uint8_t curr_prof_ch = 0;
@@ -287,23 +347,32 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             // lambda to output the document listing for current exact match 
             auto generate_listing = [this, &process_profile, &listings_fd,
                                          &curr_prof_ch, &curr_prof_pos, &num_LF_steps,
-                                         &i, &end_pos_of_match, &use_end, &length] 
+                                         &i, &end_pos_of_match, &use_end, &length, &pointer_set] 
                                         () {
-                // grab the correct current profile
-                std::vector<uint16_t> curr_profile (this->num_docs, 0);
-                if (use_end)
-                    curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
-                else
-                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                // only grab pointer if it has been set already
+                if (pointer_set) {
 
-                // update it with LF steps
-                std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
+                    // grab the correct current profile
+                    std::vector<uint16_t> curr_profile (this->num_docs, 0);
+                    if (use_end)
+                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    else
+                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
 
-                listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
+                    // update it with LF steps, and print out start/end
+                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
+                    listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
 
-                length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
-                process_profile(curr_profile, length);
-                end_pos_of_match = i;
+                    length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                    process_profile(curr_profile, length);
+                    end_pos_of_match = i;
+                }
+            };
+
+            // lambda to output empty listing for current position
+            auto generate_empty_listing = [this, &i, &end_pos_of_match, &listings_fd] {
+                listings_fd << "[" << i << "," << end_pos_of_match << "] {} ";
+                end_pos_of_match = i - 1;
             };
 
             // lambda to reset bwt variables to full range
@@ -315,9 +384,23 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 num_ch_before_end = this->bwt.number_of_letter(next_ch);
             };
 
+            // lambda to reset bwt variables to full range after empty listing
+            auto initialize_to_full_range_after_empty = [this, &start, &end, &start_run, &end_run,
+                                             &num_ch_before_start, &num_ch_before_end, &next_ch] () {
+                start = 0; end = this->bwt.size();
+                start_run = 0; end_run = this->r - 1;
+                num_ch_before_start = 0;
+                num_ch_before_end = 0;
+            };
+
             // lambda to choose a new document array profile to use
             auto update_profile_pointer = [this, &curr_prof_ch, &next_ch, &curr_prof_pos,
-                                           &start_run, &num_LF_steps, &use_start, &use_end, &start] () {
+                                           &start_run, &num_LF_steps, &use_start, &use_end, 
+                                           &start, &pointer_set] () {
+                
+                // turn on variable to show we have found set it
+                pointer_set = true;
+
                 // grab any profile at run boundary of next_ch (choose first one)
                 curr_prof_ch = next_ch;
                 curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
@@ -333,28 +416,53 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     use_start = true;
             };
 
+            // build minimizer digest object (only used if needed)
+            MinimizerDigest digester; 
+            digester.set_lexorder(false);
+            digester.set_windows(small_window_l, large_window_l);
+            if (database_type == MINIMIZER) digester.set_minimizer_alp(true);
+
             // process each read, and print out the document lists
             while (kseq_read(seq)>=0) {
                 // uppercase every letter in read
                 for (int j = 0; j < seq->seq.l; j++) {seq->seq.s[j] = up_tab[(int) seq->seq.s[j]];}
+
+                // digest read if needed
+                std::string input_read = seq->seq.s;
+                read_length = 0;
+
+                if (database_type == DNA_MINIMIZER) {input_read = digester.compute_digest(input_read);}
+                else if (database_type == MINIMIZER) {input_read = digester.compute_digest(input_read);}
+                read_length = input_read.size();
 
                 // include read name in output file
                 listings_fd << ">" << seq->name.s << "\n";
 
                 // re-initialize variables to use for backward search
                 start = 0; end = this->bwt.size(); 
-                end_pos_of_match = seq->seq.l-1; length = 0;
+                end_pos_of_match = read_length-1; length = 0;
 
                 curr_prof_ch = 0; curr_prof_pos = 0, num_LF_steps = 0;
-                use_start = false, use_end = false;
+                use_start = false, use_end = false; pointer_set = false;
 
                 // initialize position variable 
-                i = (seq->seq.l-1);
+                i = (read_length-1);
 
                 // perform backward search and report document listings
                 while (i >= 0) {
                     // already upper-cased
-                    next_ch = seq->seq.s[i];
+                    next_ch = input_read[i];
+
+                    // special case: next_ch does not occur in text
+                    if (this->bwt.number_of_letter(next_ch) == 0) {
+                        generate_listing(); // listing for [i+1,end] ...
+                        generate_empty_listing(); // empty listing for [i,i] ...
+
+                        i--; 
+                        initialize_to_full_range_after_empty();
+                        pointer_set = false;
+                        continue;
+                    }
 
                     // identify the run # that start and end are in
                     num_ch_before_start = this->bwt.rank(start, next_ch); 
@@ -395,7 +503,11 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             DONE_LOG((std::chrono::system_clock::now() - start_time));
         }
 
-        void query_profiles_with_ftab(std::string pattern_file, std::string output_prefix) {
+        void query_profiles_with_ftab(std::string pattern_file, 
+                                      std::string output_prefix, 
+                                      ref_type database_type,
+                                      size_t small_window_l,
+                                      size_t large_window_l) {
             /* query reads using the ftab to accelerate queries */
 
             STATUS_LOG("query_main", "querying the patterns");
@@ -413,19 +525,23 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             size_t length_sum = 0, num_matches = 0, num_reads = 0;
 
             // initialize ftab-related variables
-            char curr_ftab_char[FTAB_ENTRY_LENGTH+1] = "";
+            size_t curr_ftab_length = FTAB_ENTRY_LENGTH;
+            if (database_type == MINIMIZER) curr_ftab_length = FTAB_ENTRY_LENGTH_MIN;
+
+            char curr_ftab_char[curr_ftab_length+1] = "";
             std::string curr_ftab_str = "";
             size_t curr_ftab_num = 0;
             int ftab_pos = 0;
 
             // initialize variables for backward search
-            size_t start = 0, end = this->bwt.size(), end_pos_of_match = seq->seq.l-1;
+            size_t start = 0, end = this->bwt.size(), end_pos_of_match = 0;
             size_t start_run = 0, end_run = 0;
             size_t num_ch_before_start = 0, num_ch_before_end = 0;
 
             std::vector<uint16_t> curr_profile (this->num_docs, 0);
             uint16_t length = 0; uint8_t next_ch = 0;
-            int i = 0;
+            int i = 0; size_t read_length = 0;
+            bool pointer_set = false;
 
             // initialize variables for identifying correct document array profile
             uint8_t curr_prof_ch = 0;
@@ -458,26 +574,34 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             auto generate_listing = [this, &process_profile, &listings_fd,
                                          &curr_prof_ch, &curr_prof_pos, &num_LF_steps,
                                          &i, &end_pos_of_match, &use_end, &length,
-                                         &length_sum, &num_matches] 
+                                         &length_sum, &num_matches, &pointer_set] 
                                         () {
-                // grab the correct current profile
-                std::vector<uint16_t> curr_profile (this->num_docs, 0);
-                if (use_end)
-                    curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
-                else
-                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                if (pointer_set) {
+                    // grab the correct current profile
+                    std::vector<uint16_t> curr_profile (this->num_docs, 0);
+                    if (use_end)
+                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    else
+                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
 
-                // update it with LF steps
-                std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
-                listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
+                    // update it with LF steps
+                    std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
+                    listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
 
-                // use other lambda to produce listing
-                length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
-                process_profile(curr_profile, length);
-                end_pos_of_match = i;
+                    // use other lambda to produce listing
+                    length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
+                    process_profile(curr_profile, length);
+                    end_pos_of_match = i;
 
-                length_sum += length;
-                num_matches++;
+                    length_sum += length;
+                    num_matches++;
+                }
+            };
+
+            // lambda to output empty listing for current position
+            auto generate_empty_listing = [this, &i, &end_pos_of_match, &listings_fd] {
+                listings_fd << "[" << i << "," << end_pos_of_match << "] {} ";
+                end_pos_of_match = i - 1;
             };
 
             // lambda to reset bwt variables to full range
@@ -489,9 +613,23 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 num_ch_before_end = this->bwt.number_of_letter(next_ch);
             };
 
+            // lambda to reset bwt variables to full range after empty listing
+            auto initialize_to_full_range_after_empty = [this, &start, &end, &start_run, &end_run,
+                                             &num_ch_before_start, &num_ch_before_end, &next_ch] () {
+                start = 0; end = this->bwt.size();
+                start_run = 0; end_run = this->r - 1;
+                num_ch_before_start = 0;
+                num_ch_before_end = 0;
+            };
+
             // lambda to choose a new document array profile to use
             auto update_profile_pointer = [this, &curr_prof_ch, &next_ch, &curr_prof_pos,
-                                           &start_run, &num_LF_steps, &use_start, &use_end, &start] () {
+                                           &start_run, &num_LF_steps, &use_start, &use_end, 
+                                           &start, &pointer_set] () {
+                
+                // turn on variable to show we have found set it
+                pointer_set = true;
+                
                 // grab any profile at run boundary of next_ch (choose first one)
                 curr_prof_ch = next_ch;
                 curr_prof_pos = this->bwt.run_head_rank(start_run, next_ch);
@@ -509,7 +647,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             // lambda to extract ftab entry and load variables
             auto load_ftab_entry = [this, &ftab_pos, &start, &end, &curr_prof_pos, &num_LF_steps,
-                                    &curr_prof_ch, &use_start, &use_end, &i] () {
+                                    &curr_prof_ch, &use_start, &use_end, &i, &curr_ftab_length] () {
                 start = ftab[ftab_pos][0]; 
                 end = ftab[ftab_pos][1];
                 curr_prof_pos = ftab[ftab_pos][2]; 
@@ -517,8 +655,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 curr_prof_ch = ftab[ftab_pos][4]; 
                 use_start = ftab[ftab_pos][5];
                 use_end = ftab[ftab_pos][6];
-                i -= FTAB_ENTRY_LENGTH;
+                i -= curr_ftab_length;
             };
+
+            // build minimizer digest object (only used if needed)
+            MinimizerDigest digester; 
+            digester.set_lexorder(false);
+            digester.set_windows(small_window_l, large_window_l);
+            if (database_type == MINIMIZER) digester.set_minimizer_alp(true);
 
             // process each read, and print out the document lists
             while (kseq_read(seq)>=0) {
@@ -526,34 +670,51 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 for (int j = 0; j < seq->seq.l; j++) {seq->seq.s[j] = up_tab[(int) seq->seq.s[j]];}
                 num_reads++;
 
+                // digest read if needed
+                std::string input_read = seq->seq.s;
+                read_length = 0;
+
+                if (database_type == DNA_MINIMIZER) {input_read = digester.compute_digest(input_read);}
+                else if (database_type == MINIMIZER) {input_read = digester.compute_digest(input_read);}
+                read_length = input_read.size();
+
                 // include read name in output file
                 listings_fd << ">" << seq->name.s << "\n";
 
                 // re-initialize variables to use for backward search
                 start = 0; end = this->bwt.size(); 
-                end_pos_of_match = seq->seq.l-1; length = 0;
+                end_pos_of_match = read_length-1; length = 0;
 
                 curr_prof_ch = 0; curr_prof_pos = 0, num_LF_steps = 0;
-                use_start = false, use_end = false;
+                use_start = false, use_end = false; pointer_set = false;
 
                 // re-initialize ftab-related variables
                 curr_ftab_str = ""; curr_ftab_num = 0;
 
-                // determine if we can use ftab to start out
-                ftab_pos = check_if_ftab_can_be_used(seq->seq.s, i);
-                if (ftab_pos >= 0) {
-                    load_ftab_entry();
-                }
-
                 // initialize position variable 
-                i = (seq->seq.l-1);
+                i = (read_length-1);
+
+                // determine if we can use ftab to start out
+                ftab_pos = check_if_ftab_can_be_used(input_read.data(), i, (database_type == MINIMIZER)); 
+                if (ftab_pos >= 0) {load_ftab_entry();}
 
                 // perform backward search and report document listings
                 while (i >= 0) {
                     bool ftab_used = false; 
 
                     // already upper-cased
-                    next_ch = seq->seq.s[i];
+                    next_ch = input_read[i];
+
+                    // special case: next_ch does not occur in text
+                    if (this->bwt.number_of_letter(next_ch) == 0) {
+                        generate_listing(); // listing for [i+1,end] ...
+                        generate_empty_listing(); // empty listing for [i,i] ...
+
+                        i--; 
+                        initialize_to_full_range_after_empty();
+                        pointer_set = false;
+                        continue;
+                    }
 
                     // identify the run # that start and end are in
                     num_ch_before_start = this->bwt.rank(start, next_ch); 
@@ -573,7 +734,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         generate_listing();
                         initialize_to_full_range(); 
 
-                        ftab_pos = check_if_ftab_can_be_used(seq->seq.s, i);
+                        ftab_pos = check_if_ftab_can_be_used(input_read.data(), i, (database_type == MINIMIZER));
                         if (ftab_pos >= 0) {
                             load_ftab_entry();
                             ftab_used = true;
@@ -894,7 +1055,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             DONE_LOG((std::chrono::system_clock::now() - start));
             FORCE_LOG("query_main", "number of entries in ftab: %ld" , ftab.size());
             std::cerr << "\n";
-            std::exit(1);
         }
 
     private:
@@ -1100,37 +1260,51 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             fclose(fd);
         }
 
-        int check_if_ftab_can_be_used(const char* seq, int i) {
+        int check_if_ftab_can_be_used(const char* seq, int i, bool minimizer_alp) {
             /* extracts the current query from read, and checks table */
 
             // initialize variable for ftab query string
-            char curr_ftab_char[FTAB_ENTRY_LENGTH+1] = "";
+            size_t ftab_entry_length = FTAB_ENTRY_LENGTH;
+            if (minimizer_alp) {ftab_entry_length = FTAB_ENTRY_LENGTH_MIN;}
+
+            char curr_ftab_char[ftab_entry_length+1] = "";
             std::string curr_ftab_str = "";
             size_t curr_ftab_num = 0;
 
-            // check if there is room left to take a 10-mer
-            if (i >= FTAB_ENTRY_LENGTH-1) {
+            // check if there is room left to take a k-mer
+            if (i >= ftab_entry_length-1) {
                 std::memcpy(curr_ftab_char, 
-                            (char *) &seq[i-FTAB_ENTRY_LENGTH+1], 
-                            FTAB_ENTRY_LENGTH);
-                curr_ftab_char[FTAB_ENTRY_LENGTH] = '\0'; 
+                            (char *) &seq[i-ftab_entry_length+1], 
+                            ftab_entry_length);
+                curr_ftab_char[ftab_entry_length] = '\0'; 
                 curr_ftab_str = curr_ftab_char;
 
-                //std::cout << curr_ftab_str << std::endl;
-
+                // generate the pointer for the current k-mer
                 curr_ftab_num = 0;
-                for (int j = 0; j < FTAB_ENTRY_LENGTH; j++){
-                    //std::cout << curr_ftab_str[j] << std::endl;
-                    if (curr_ftab_str[j] == 'A')
-                        curr_ftab_num = curr_ftab_num | (0x0 << (2*(FTAB_ENTRY_LENGTH-j-1)));
-                    else if (curr_ftab_str[j] == 'C')
-                        curr_ftab_num = curr_ftab_num | (0x1 << (2*(FTAB_ENTRY_LENGTH-j-1)));
-                    else if (curr_ftab_str[j] == 'T')
-                        curr_ftab_num = curr_ftab_num | (0x2 << (2*(FTAB_ENTRY_LENGTH-j-1)));
-                    else if (curr_ftab_str[j] == 'G')
-                        curr_ftab_num = curr_ftab_num | (0x3 << (2*(FTAB_ENTRY_LENGTH-j-1)));
-                    else
-                        return -1;
+                if (!minimizer_alp) {
+                    for (int j = 0; j < ftab_entry_length; j++){
+                        if (curr_ftab_str[j] == 'A')
+                            curr_ftab_num = curr_ftab_num | (0x0 << (2*(ftab_entry_length-j-1)));
+                        else if (curr_ftab_str[j] == 'C')
+                            curr_ftab_num = curr_ftab_num | (0x1 << (2*(ftab_entry_length-j-1)));
+                        else if (curr_ftab_str[j] == 'T')
+                            curr_ftab_num = curr_ftab_num | (0x2 << (2*(ftab_entry_length-j-1)));
+                        else if (curr_ftab_str[j] == 'G')
+                            curr_ftab_num = curr_ftab_num | (0x3 << (2*(ftab_entry_length-j-1)));
+                        else
+                            return -1;
+                    } 
+                } else {
+                    // subtract 3 from each char and the convert back to 
+                    // decimal from 253-base
+                    for (size_t j = 0; j < curr_ftab_str.size(); j++) {
+                        curr_ftab_str[j] -= 3;
+                        uint8_t curr_ch = unsigned(curr_ftab_str[j]);
+                        ASSERT((curr_ch >= 0 && curr_ch <= 252), 
+                                "unexpected string found in check_if_ftab().");
+
+                        curr_ftab_num += std::pow(253, ftab_entry_length-1-j) * unsigned(curr_ch);
+                    }
                 }
 
                 // use ftab entry to see if it is present in text
@@ -1141,25 +1315,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     return -1;
                 else 
                     return curr_ftab_num;
-
-                // unpack the current ftab entry
-                // start = ftab[curr_ftab_num][0];
-                // end = ftab[curr_ftab_num][1];
-                // curr_prof_pos = ftab[curr_ftab_num][2];
-                // num_LF_steps = ftab[curr_ftab_num][3];
-                // curr_prof_ch = ftab[curr_ftab_num][4];
-                // use_start = ftab[curr_ftab_num][5];
-                // use_end = ftab[curr_ftab_num][6];
-
-                // At this point check if a boolean variable is false,
-                // based on the forloop of entering a non-ACGT character
-                // or the ftab entry if it doesn't exist
-
-                // std::cout << curr_ftab_num << std::endl;
-                // std::cout << ftab[curr_ftab_num] << std::endl;
-
-                //std::cout << start << " " << end << " " << curr_prof_pos << " " << num_LF_steps << " " << curr_prof_ch << " " << use_start << " " << use_end << std::endl;
-
             } else {
                 return -1;
             }

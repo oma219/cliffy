@@ -66,7 +66,6 @@ enum ref_type {DNA, DNA_MINIMIZER, MINIMIZER};
 
 /* MACROS related to FTAB creation */
 #define FTAB_GRAB_CODE(num, pos) (((0x3 << (pos * 2)) & num) >> (pos * 2))
-#define FTAB_GRAB_CODE(num, pos) (((0xF << (pos * 4)) & num) >> (pos * 4))
 
 /* Tables used for quick upper-casing and complementing */
 inline char up_tab[] = {
