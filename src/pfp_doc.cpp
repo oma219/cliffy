@@ -116,8 +116,9 @@ int build_main(int argc, char** argv) {
     if (!build_opts.use_taxcomp && !build_opts.use_topk){
         // build query object, and then build ftab index
         doc_queries doc_queries_obj(build_opts.output_ref);
+        size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
 
-        STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", FTAB_ENTRY_LENGTH);
+        STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
         start = std::chrono::system_clock::now();
         size_t num_found = 0, num_not_found = 0;
 
@@ -126,7 +127,7 @@ int build_main(int argc, char** argv) {
 
         STATS_LOG("cliffy::stats", 
                   "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
-                  FTAB_ENTRY_LENGTH, num_found, FTAB_ENTRY_LENGTH, num_not_found);
+                  curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
 
     } else if (build_opts.use_taxcomp) {
         FATAL_ERROR("Not implemented yet ...");
