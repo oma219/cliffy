@@ -126,6 +126,14 @@ class pfp_lcp_doc_two_pass {
             dirty_lcp_cache[i] = max_lcp_init;
         // DEBUG: END ---------------------------------------------
 
+        size_t num_tag_runs = 1;
+        size_t curr_tag_doc = 0;
+        size_t num_checks = 0;
+        std::vector<size_t> sa_samples_for_tag;
+        size_t prev_sa_sample = 0;
+        size_t shared_boundary = 1;
+        std::set<size_t> set_of_tag_samples;
+
         // create a struct to store data for temp file
         temp_data_entry_t curr_data_entry;
 
@@ -204,6 +212,40 @@ class pfp_lcp_doc_two_pass {
                     bool is_start = (pos == 0 || curr_bwt_ch != prev_bwt_ch) ? 1 : 0;
                     bool is_end = (pos == ref_build->total_length-1); // only special case, common case is below
 
+                    // DEBUG -----------------------------
+                    if (pos > 0) {
+                        num_checks++;
+                        bool tag_run_boundary = false;
+                        bool bwt_run_boundary = false;
+
+                        // check for start of tag array run
+                        if (doc_i != curr_tag_doc) {
+                            num_tag_runs++;
+                            curr_tag_doc = doc_i;
+                            tag_run_boundary = true;
+                        }
+
+                        // check for start of bwt run
+                        if (is_start) {
+                            bwt_run_boundary = true;
+                        }
+
+                        // check if they both occur with each other
+                        if (bwt_run_boundary && tag_run_boundary) {shared_boundary++;}
+
+                        // check if either occurs and store the two sa values
+                        if (bwt_run_boundary || tag_run_boundary) {
+                            sa_samples_for_tag.push_back(sa_i);
+                            sa_samples_for_tag.push_back(prev_sa_sample);
+                        } 
+                    } else if (pos == 0) {
+                        curr_tag_doc = doc_i;
+                        sa_samples_for_tag.push_back(sa_i);
+                    }
+                    prev_sa_sample = sa_i;
+                    // DEBUG -----------------------------
+
+
                     // handle scenario where the previous suffix was a end of a run
                     if (pos > 0 && prev_bwt_ch != curr_bwt_ch)
                         curr_data_entry.is_end = true;
@@ -264,6 +306,56 @@ class pfp_lcp_doc_two_pass {
             }
         }
         DONE_LOG((std::chrono::system_clock::now() - start));
+
+
+        // DEBUG -----------------------------
+        std::cout << "\n\nDEBUG --------------------------------- \n\n";
+        sa_samples_for_tag.push_back(prev_sa_sample);
+
+        // print number fo tag runs and number of shared boundaries
+        std::cout << "num_tag_runs (t) = " << num_tag_runs << std::endl;
+        std::cout << "num_checks = " << num_checks << "\n\n";
+
+        std::cout << "shared_boundary = " << shared_boundary << "\n\n";
+
+        // build set and print size
+        for (auto x: sa_samples_for_tag) {set_of_tag_samples.insert(x);}
+
+        std::cout << "size of sa array = " << sa_samples_for_tag.size() << std::endl;
+        std::cout << "size of sa array set = " << set_of_tag_samples.size() << "\n\n";
+        std::cout << "filename: " << (filename + ".sa_sample_gaps") << "\n\n";
+
+        // write the gaps to file
+        FILE* gap_file;
+        std::string outfile = filename + std::string(".sa_sample_gaps");
+        if ((gap_file = fopen(outfile.c_str(), "w")) == nullptr)
+            FATAL_ERROR("open() file failed");
+
+        size_t last_val = 0;
+        size_t pos_in_sa_sample = 0;
+        for (auto x: set_of_tag_samples) {
+            // make sure they are increasing
+            ASSERT((x >= last_val), "sa values should only be increasing.");
+            
+            // compute gap (special case: first value)
+            size_t curr_gap = x - last_val;
+            if (pos_in_sa_sample != 0) {curr_gap -= 1;}
+
+            // reset the last value variable
+            last_val = x;
+
+            // make sure gap is no more than 4 bytes
+            ASSERT((curr_gap < 4294967296), "gap is too big\n");
+            
+            // write gap to file
+            if (fwrite(&curr_gap, sizeof(uint32_t), 1, gap_file) != 1)
+                FATAL_ERROR("issue occurred while writing to *.sdap file");
+            pos_in_sa_sample++;
+        }
+        fclose(gap_file);
+        std::cout << "DEBUG --------------------------------- \n\n";
+        // DEBUG -----------------------------
+
 
         // make sure to write the last suffix to temp data
         write_data_to_temp_file(curr_data_entry);
