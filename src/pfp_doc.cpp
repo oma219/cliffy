@@ -130,7 +130,20 @@ int build_main(int argc, char** argv) {
                   curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
 
     } else if (build_opts.use_taxcomp) {
-        FATAL_ERROR("Not implemented yet ...");
+        // build query object, and then build ftab index
+        tax_doc_queries tax_queries_obj(build_opts.output_ref, build_opts.numcolsintable);
+        size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
+
+        STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
+        start = std::chrono::system_clock::now();
+        size_t num_found = 0, num_not_found = 0;
+
+        std::tie(num_found, num_not_found) = tax_queries_obj.build_ftab(build_opts.use_minimizers);
+        DONE_LOG((std::chrono::system_clock::now() - start));
+
+        STATS_LOG("cliffy::stats", 
+                  "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
+                  curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
     } else if (build_opts.use_topk) {
         FATAL_ERROR("Not implemented yet ...");
     }
@@ -198,12 +211,29 @@ int run_main(int argc, char** argv) {
         // build the tax_doc_queries object (load data-structures)
         tax_doc_queries tax_doc_queries_obj(run_opts.ref_file,
                                             run_opts.num_cols);
-        // query the doc_profiles with the given reads
-        STATUS_LOG("run_main", "processing the patterns");
-
-        auto start = std::chrono::system_clock::now();
-        tax_doc_queries_obj.query_profiles(run_opts.pattern_file);
-        DONE_LOG((std::chrono::system_clock::now() - start));
+        
+        // query reads, load ftab structure if we want to use it
+        if (run_opts.use_ftab) {
+            tax_doc_queries_obj.load_ftab_from_file(run_opts.use_minimizers);
+            tax_doc_queries_obj.query_profiles_with_ftab(run_opts.pattern_file, 
+                                                         run_opts.output_prefix,
+                                                         database_type,
+                                                         run_opts.small_window_l,
+                                                         run_opts.large_window_l);
+        } else if (run_opts.use_optimized) {
+            tax_doc_queries_obj.query_profiles_optimized(run_opts.pattern_file, 
+                                                         run_opts.output_prefix,
+                                                         database_type,
+                                                         run_opts.small_window_l,
+                                                         run_opts.large_window_l);
+        } else {
+            tax_doc_queries_obj.query_profiles(run_opts.pattern_file, 
+                                            run_opts.output_prefix,
+                                            database_type,
+                                            run_opts.small_window_l,
+                                            run_opts.large_window_l);
+        }
+            
     } else if (run_opts.use_topk) {
         // build the topk_doc_queries object (load data-structures)
         topk_doc_queries topk_doc_queries_obj(run_opts.ref_file,

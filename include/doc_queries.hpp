@@ -146,7 +146,6 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 // range goes empty or we reach the end
                 for (int i = (read_length-1); i >= 0; i--) {
 
-                    // Uppercase the letter prior to using it
                     uint8_t next_ch = input_read[i];
 
                     if (this->bwt.number_of_letter(next_ch) == 0) {
@@ -179,7 +178,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         continue;
                     }
 
-                    // Identify the run # that start and end are in
+                    // identify the run # that start and end are in
                     num_ch_before_start = this->bwt.rank(start, next_ch); 
                     num_ch_before_end = this->bwt.rank(end, next_ch);
                     start_run = this->bwt.run_of_position(start);
@@ -277,7 +276,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 else
                     curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
 
-                // Update profile based on LF steps
+                // update profile based on LF steps
                 std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
 
                 listings_fd << "[" << 0 << "," << end_pos_of_match << "] ";
@@ -647,7 +646,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             // lambda to extract ftab entry and load variables
             auto load_ftab_entry = [this, &ftab_pos, &start, &end, &curr_prof_pos, &num_LF_steps,
-                                    &curr_prof_ch, &use_start, &use_end, &i, &curr_ftab_length] () {
+                                    &curr_prof_ch, &use_start, &use_end, &i, &curr_ftab_length, &pointer_set] () {
                 start = ftab[ftab_pos][0]; 
                 end = ftab[ftab_pos][1];
                 curr_prof_pos = ftab[ftab_pos][2]; 
@@ -656,6 +655,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 use_start = ftab[ftab_pos][5];
                 use_end = ftab[ftab_pos][6];
                 i -= curr_ftab_length;
+
+                // update pointer to show we have set it
+                pointer_set = true;
             };
 
             // build minimizer digest object (only used if needed)

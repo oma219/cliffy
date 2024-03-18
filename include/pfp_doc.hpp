@@ -16,8 +16,9 @@
 #include <cmath>
 
 /* Useful MACROs */
-#define FATAL_ERROR(...) do {std::fprintf(stderr, "\n\033[31mError: \033[m"); std::fprintf(stderr, __VA_ARGS__);\
-                              std::fprintf(stderr, "\n\n"); std::exit(1);} while(0)
+#define FATAL_ERROR(...)  do {std::fprintf(stderr, "\n\n\033[31m[%s::error] \033[m", TOOL_NAME); \
+                                  std::fprintf(stderr, __VA_ARGS__); \
+                                  std::fprintf(stderr, "\n\n"); std::exit(1);} while (0)
 #define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\n\n\033[31mAssertion Failed:\033[m %s\n\n", msg); \
                                                    std::exit(1);}} while(0)
 #define STATUS_LOG(x, ...) do {std::fprintf(stderr, "\033[32m[%s::log] \033[0m", TOOL_NAME); std::fprintf(stderr, __VA_ARGS__ ); \
