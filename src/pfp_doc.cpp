@@ -111,43 +111,46 @@ int build_main(int argc, char** argv) {
     }
     std::cerr << "\n";
 
-    // build the f_tab by building query object
-    FORCE_LOG("cliffy::log", "\033[1m\033[32mbuilding ftab to speed-up querying\033[0m");
-    if (!build_opts.use_taxcomp && !build_opts.use_topk){
-        // build query object, and then build ftab index
-        doc_queries doc_queries_obj(build_opts.output_ref);
-        size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
+    if (build_opts.make_ftab) {
+        // build the f_tab by building query object
+        FORCE_LOG("cliffy::log", "\033[1m\033[32mbuilding ftab to speed-up querying\033[0m");
 
-        STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
-        start = std::chrono::system_clock::now();
-        size_t num_found = 0, num_not_found = 0;
+        if (!build_opts.use_taxcomp && !build_opts.use_topk){
+            // build query object, and then build ftab index
+            doc_queries doc_queries_obj(build_opts.output_ref);
+            size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
 
-        std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab(build_opts.use_minimizers);
-        DONE_LOG((std::chrono::system_clock::now() - start));
+            STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
+            start = std::chrono::system_clock::now();
+            size_t num_found = 0, num_not_found = 0;
 
-        STATS_LOG("cliffy::stats", 
-                  "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
-                  curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
+            std::tie(num_found, num_not_found) = doc_queries_obj.build_ftab(build_opts.use_minimizers);
+            DONE_LOG((std::chrono::system_clock::now() - start));
 
-    } else if (build_opts.use_taxcomp) {
-        // build query object, and then build ftab index
-        tax_doc_queries tax_queries_obj(build_opts.output_ref, build_opts.numcolsintable);
-        size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
+            STATS_LOG("cliffy::stats", 
+                    "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
+                    curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
 
-        STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
-        start = std::chrono::system_clock::now();
-        size_t num_found = 0, num_not_found = 0;
+        } else if (build_opts.use_taxcomp) {
+            // build query object, and then build ftab index
+            tax_doc_queries tax_queries_obj(build_opts.output_ref, build_opts.numcolsintable);
+            size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
 
-        std::tie(num_found, num_not_found) = tax_queries_obj.build_ftab(build_opts.use_minimizers);
-        DONE_LOG((std::chrono::system_clock::now() - start));
+            STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
+            start = std::chrono::system_clock::now();
+            size_t num_found = 0, num_not_found = 0;
 
-        STATS_LOG("cliffy::stats", 
-                  "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
-                  curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
-    } else if (build_opts.use_topk) {
-        FATAL_ERROR("Not implemented yet ...");
+            std::tie(num_found, num_not_found) = tax_queries_obj.build_ftab(build_opts.use_minimizers);
+            DONE_LOG((std::chrono::system_clock::now() - start));
+
+            STATS_LOG("cliffy::stats", 
+                    "\033[1m\033[32mnum of %d-mers found = %d, num of %d-mers NOT found = %d\033[0m",
+                    curr_ftab_entry_length, num_found, curr_ftab_entry_length, num_not_found);
+        } else if (build_opts.use_topk) {
+            FATAL_ERROR("Not implemented yet ...");
+        }
+        std::cerr << "\n";
     }
-    std::cerr << "\n";
 
     // print out full time
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
@@ -408,12 +411,13 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
         {"large-window", required_argument, NULL, 'c'},
         {"minimizers", no_argument, NULL, 'i'},
         {"dna-minimizers", no_argument, NULL, 'j'},
+        {"no-ftab", no_argument, NULL, 'd'},
         {0, 0, 0,  0}
     };
 
     int c = 0;
     int long_index = 0;
-    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:a:s:b:c:ij", long_options, &long_index)) >= 0) {
+    while ((c = getopt_long(argc, argv, "hf:o:w:rtk:pe:nm:a:s:b:c:ijd", long_options, &long_index)) >= 0) {
         switch(c) {
             case 'h': pfpdoc_build_usage(); std::exit(1);
             case 'f': opts->input_list.assign(optarg); break;
@@ -432,6 +436,7 @@ void parse_build_options(int argc, char** argv, PFPDocBuildOptions* opts) {
             case 'c': opts->large_window_l = std::atoi(optarg); break;
             case 'i': opts->use_minimizers = true; opts->is_fasta=false; break;
             case 'j': opts->use_dna_minimizers = true; break;
+            case 'd': opts->make_ftab = false; break;
             default: pfpdoc_build_usage(); std::exit(1);
         }
     }
@@ -529,6 +534,8 @@ int pfpdoc_build_usage() {
 
     std::fprintf(stderr, "\t%-21s%-10suse the 2-pass construction algorithm (default: false)\n", "-a, --two-pass", "[PREFIX]");
     std::fprintf(stderr, "\t%-21s%-10ssize of temporary storage files in GB (e.g. 4GB)\n\n", "-s, --tmp-size", "[ARG]");
+
+    std::fprintf(stderr, "\t%-31sturn off ftab generation, used for faster querying (default: true)\n\n", "-d, --no-ftab");
     
     std::fprintf(stderr, "\t%-31suse taxonomic compression of the document array (default: false)\n", "-t, --taxcomp");
     std::fprintf(stderr, "\t%-31suse top-k compression of the document array (default: false)\n", "-p, --top-k");

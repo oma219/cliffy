@@ -170,6 +170,7 @@ struct PFPDocBuildOptions {
         size_t use_heuristics = true;
         bool use_two_pass = false;
         size_t tmp_size = 0;
+        bool make_ftab = true;
 
         bool use_minimizers = false;
         bool use_dna_minimizers = false;
