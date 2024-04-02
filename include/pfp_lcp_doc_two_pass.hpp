@@ -368,8 +368,8 @@ class pfp_lcp_doc_two_pass {
 
         // print out statistics
         size_t total_tmp_used = (num_lcp_temp_data * TEMPDATA_RECORD) + (num_dap_temp_data * DOCWIDTH);
-        STATS_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld", 
-                  j, total_num_runs, total_tmp_used); 
+        STATS_LOG("build_main", "stats: n = %ld, r = %ld, total_tmp_used = %ld (%ld + %ld)", 
+                  j, total_num_runs, total_tmp_used, (num_lcp_temp_data * TEMPDATA_RECORD), (num_dap_temp_data * DOCWIDTH)); 
     }
 
     ~pfp_lcp_doc_two_pass() {
@@ -1002,8 +1002,9 @@ class pfp_lcp_doc_two_pass {
                 mmap_dap_inter[start_pos + (i*DOCWIDTH) + 1] = ((0xFF << 8) & curr_lcp) >> 8;
             } 
             num_dap_temp_data += curr_prof.size();
+            
             ASSERT((max_dap_records > (num_dap_temp_data+num_docs)), 
-                    "the space in the document array temp file has been used up.");
+                    "the space in the document array temp file is not large enough.");
         }
 
         void delete_temp_files(std::string filename) {
