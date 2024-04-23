@@ -95,7 +95,6 @@ int build_main(int argc, char** argv) {
         FORCE_LOG("cliffy::log", "top-k compression of the doc profile will be used (# of columns = %d)", build_opts.numcolsintable);
     else   
         FORCE_LOG("cliffy::log", "\033[1m\033[32mno compression scheme will be used for the doc profiles\033[0m");
-    
 
     // builds the BWT, SA, LCP, and document array profiles and writes to a file
     size_t num_runs = 0;
@@ -112,8 +111,8 @@ int build_main(int argc, char** argv) {
     }
     std::cerr << "\n";
 
+     // build the f_tab if requested
     if (build_opts.make_ftab) {
-        // build the f_tab by building query object
         FORCE_LOG("cliffy::log", "\033[1m\033[32mbuilding ftab to speed-up querying\033[0m");
 
         if (!build_opts.use_taxcomp && !build_opts.use_topk){
@@ -152,6 +151,10 @@ int build_main(int argc, char** argv) {
         }
         std::cerr << "\n";
     }
+
+
+
+
 
     // print out full time
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));
