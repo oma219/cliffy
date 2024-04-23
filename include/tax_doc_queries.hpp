@@ -45,7 +45,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         size_t num_cols,
                         size_t num_profiles = 0,
                         std::string output_path = "",
-                        bool rle = true):
+                        bool rle = true,
+                        bool verbose = true):
                         profiles_to_print(num_profiles),
                         output_ref(filename),
                         rle (rle),
@@ -55,19 +56,19 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         end_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0)))
         {
             // load the BWT 
-            STATUS_LOG("query_main", "loading the bwt of the input text");
+            if (verbose) {STATUS_LOG("query_main", "loading the bwt of the input text");}
             auto start = std::chrono::system_clock::now();
 
             std::string bwt_fname = filename + ".bwt";
             load_bwt_structure(bwt_fname);
-            DONE_LOG((std::chrono::system_clock::now() - start));
+            if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
 
             // gather some statistics on the BWT
             this->r = this->bwt.number_of_runs();
             ri::ulint n = this->bwt.size();
             size_t log_r = bitsize(uint64_t(this->r));
             size_t log_n = bitsize(uint64_t(this->bwt.size()));
-            FORCE_LOG("query_main", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);
+            if (verbose) {FORCE_LOG("query_main", "bwt statistics: n = %ld, r = %ld\n" , this->bwt.size(), this->r);}
 
             // check file size and make sure it is valid
             check_doc_array_files(filename + ".taxcomp.sdap");
@@ -83,7 +84,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
 
             // read the document array main table
-            STATUS_LOG("build_profiles", "loading the document array profiles");
+            if (verbose) {STATUS_LOG("build_profiles", "loading the document array profiles");}
             start = std::chrono::system_clock::now();
 
             read_doc_profiles_main_table(start_doc_profiles, filename + ".taxcomp.sdap", &csv_sdap_output);
@@ -93,7 +94,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 csv_sdap_output.close();
                 csv_edap_output.close();
             }
-            DONE_LOG((std::chrono::system_clock::now() - start));
+            if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
 
             // load the overflow files
             std::string sdap_of_path = filename + ".taxcomp.of.sdap";
