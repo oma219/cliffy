@@ -1053,7 +1053,6 @@ class pfp_lcp_doc_two_pass {
                         }
                     // option 2: use taxonomic compression
                     } else if (use_taxcomp) {
-
                         size_t curr_val = 0; 
                         size_t prev_max = std::min(GET_DAP(mmap_dap_inter, (dap_ptr)), MAXLCPVALUE);
                         left_increases.push_back(0);
@@ -1062,7 +1061,7 @@ class pfp_lcp_doc_two_pass {
                         // keep track of increases from left
                         for (size_t j = 0; j < num_docs; j++) {
                             curr_val = GET_DAP(mmap_dap_inter, (dap_ptr+j));
-                            assert(prof_val <= MAXLCPVALUE);
+                            ASSERT((curr_val <= MAXLCPVALUE), "issue occurred in writing of DAP. (taxcomp - 1)");
                             curr_profile[j] = curr_val;
 
                             if (curr_val > prev_max) {
@@ -1071,7 +1070,7 @@ class pfp_lcp_doc_two_pass {
                                 prev_max = curr_val;
                             }
                         }
-                        ASSERT((left_increases.size() % 2 == 0), "issue occurred in writing of DAP.");
+                        ASSERT((left_increases.size() % 2 == 0), "issue occurred in writing of DAP. (taxcomp - 2)");
                         size_t num_left_inc = left_increases.size()/2;
                         size_t num_right_inc = 0;
 
@@ -1087,7 +1086,7 @@ class pfp_lcp_doc_two_pass {
                                 prev_max = curr_profile[j];
                             }
                         }
-                        ASSERT((right_increases.size() % 2 == 0), "issue occurred in writing of DAP.");
+                        ASSERT((right_increases.size() % 2 == 0), "issue occurred in writing of DAP. (taxcomp - 3)");
                         num_right_inc = right_increases.size() / 2;
 
                         size_t old_sdap_overflow_pos = tax_sdap_overflow_ptr;
@@ -1118,10 +1117,9 @@ class pfp_lcp_doc_two_pass {
 
                             // Check that overflow ptr is being incremented as expected
                             if (num_of_pairs > 0)
-                                assert (tax_sdap_overflow_ptr == 
-                                    (old_sdap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                                ASSERT((tax_sdap_overflow_ptr == (old_sdap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs))),  "issue occurred in writing of DAP. (taxcomp - 4)");
                             else
-                                assert(tax_sdap_overflow_ptr == old_sdap_overflow_pos);
+                                ASSERT((tax_sdap_overflow_ptr == old_sdap_overflow_pos), "issue occurred in writing of DAP. (taxcomp - 5)");
                         }
                         // write to end-runs file
                         if (is_end) {
@@ -1144,19 +1142,20 @@ class pfp_lcp_doc_two_pass {
 
                             // Check that overflow ptr is being incremented as expected
                             if (num_of_pairs > 0)
-                                assert (tax_edap_overflow_ptr == 
-                                    (old_edap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs)));
+                                ASSERT ((tax_edap_overflow_ptr == (old_edap_overflow_pos + 2 + (DOCWIDTH * 2 * num_of_pairs))), "issue occurred in writing of DAP. (taxcomp - 6)");
                             else
-                                assert(tax_edap_overflow_ptr == old_edap_overflow_pos);
+                                ASSERT ((tax_edap_overflow_ptr == old_edap_overflow_pos), "issue occurred in writing of DAP. (taxcomp - 7)");
                         }
 
                         // empty the vectors
                         left_increases.clear();
                         right_increases.clear();
+                    // option 3: top-k compression
                     } else {
                         FATAL_ERROR("Not implemented yet ...");
                     }
-                    // Increment after writing the profile
+
+                    // increment after writing the profile
                     dap_ptr += num_docs;
                 }
             }
