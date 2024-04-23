@@ -90,11 +90,12 @@ int build_main(int argc, char** argv) {
     // print info regarding the compression scheme being used
     std::cerr << "\n";
     if (build_opts.use_taxcomp)
-        FORCE_LOG("cliffy::log", "taxonomic compression of the doc profiles will be used");
+        FORCE_LOG("cliffy::log", "taxonomic compression of the doc profiles will be used (# of columns = %d)", build_opts.numcolsintable);
     else if (build_opts.use_topk)
-        FORCE_LOG("cliffy::log", "top-k compression of the doc profile will be used");
+        FORCE_LOG("cliffy::log", "top-k compression of the doc profile will be used (# of columns = %d)", build_opts.numcolsintable);
     else   
         FORCE_LOG("cliffy::log", "\033[1m\033[32mno compression scheme will be used for the doc profiles\033[0m");
+    
 
     // builds the BWT, SA, LCP, and document array profiles and writes to a file
     size_t num_runs = 0;

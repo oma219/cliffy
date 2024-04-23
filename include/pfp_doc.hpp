@@ -19,6 +19,9 @@
 #define FATAL_ERROR(...)  do {std::fprintf(stderr, "\n\n\033[31m[%s::error] \033[m", TOOL_NAME); \
                                   std::fprintf(stderr, __VA_ARGS__); \
                                   std::fprintf(stderr, "\n\n"); std::exit(1);} while (0)
+#define FATAL_WARN(...)  do {std::fprintf(stderr, "\n\n\033[33m[%s::warning] \033[m", TOOL_NAME); \
+                                  std::fprintf(stderr, __VA_ARGS__); \
+                                  std::fprintf(stderr, "\n\n"); std::exit(1);} while (0)
 #define ASSERT(condition, msg) do {if (!condition){std::fprintf(stderr, "\n\n\033[31mAssertion Failed:\033[m %s\n\n", msg); \
                                                    std::exit(1);}} while(0)
 #define STATUS_LOG(x, ...) do {std::fprintf(stderr, "\033[32m[%s::log] \033[0m", TOOL_NAME); std::fprintf(stderr, __VA_ARGS__ ); \
@@ -207,6 +210,8 @@ struct PFPDocBuildOptions {
 
                 if (use_topk)
                     FATAL_ERROR("top-k is not implemented yet with two-pass algorithm.");
+            } else {
+                FATAL_WARN("one-pass build algorithm is not supported for now. Rerun with --two-pass option.");
             }
 
             // can only use one type of compression
@@ -228,6 +233,11 @@ struct PFPDocBuildOptions {
             // make sure small window is 4 if using minimizer alphabet
             if (use_minimizers && small_window_l != 4)
                 FATAL_ERROR("when using minimizer alphabet, the small window must be set to 4.");
+
+            // checks the number of column argument
+            if ((use_taxcomp || use_topk) && (numcolsintable < 2 || numcolsintable > 20))
+                FATAL_ERROR("Invalid number of columns in compressed table, make sure to set it with -c, --num-col");
+            
         }
 };
 
