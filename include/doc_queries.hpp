@@ -58,8 +58,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     ri::r_index<sparse_bv_type, rle_string_t>(),
                     rle(rle),
                     output_ref(filename),
-                    start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
-                    end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
+                    // start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
+                    // end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
                     start_doc_profiles2(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
                     end_doc_profiles2(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
         {
@@ -94,25 +94,25 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             check_doc_array_files(filename + ".edap");
            
             // load the profiles for starts and ends
-            STATUS_LOG("query_main", "loading the document array profiles");
-            start = std::chrono::system_clock::now();
+            // STATUS_LOG("query_main", "loading the document array profiles");
+            // start = std::chrono::system_clock::now();
             
-            read_doc_profiles(start_doc_profiles, 
-                              filename + ".sdap", 
-                              this->num_docs, 
-                              this->r, 
-                              output_path + ".sdap.csv", 
-                              num_profiles);
-            read_doc_profiles(end_doc_profiles, 
-                              filename + ".edap", 
-                              this->num_docs, 
-                              this->r, 
-                              output_path + ".edap.csv", 
-                              num_profiles);
-            DONE_LOG((std::chrono::system_clock::now() - start));
+            // read_doc_profiles(start_doc_profiles, 
+            //                   filename + ".sdap", 
+            //                   this->num_docs, 
+            //                   this->r, 
+            //                   output_path + ".sdap.csv", 
+            //                   num_profiles);
+            // read_doc_profiles(end_doc_profiles, 
+            //                   filename + ".edap", 
+            //                   this->num_docs, 
+            //                   this->r, 
+            //                   output_path + ".edap.csv", 
+            //                   num_profiles);
+            // DONE_LOG((std::chrono::system_clock::now() - start));
 
             // load the profiles for starts and ends (new-way)
-            STATUS_LOG("query_main", "loading the document array profiles (new-way)");
+            STATUS_LOG("query_main", "loading the document array profiles");
             start = std::chrono::system_clock::now();
             
             read_doc_profiles_new_way(start_doc_profiles2, 
@@ -121,16 +121,14 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                                       this->num_docs, 
                                       this->r, 
                                       output_path + ".sdap.csv", 
-                                      num_profiles,
-                                      start_doc_profiles);
+                                      num_profiles);
             read_doc_profiles_new_way(end_doc_profiles2, 
                                       filename + ".edap",
                                       filename + ".runcnt", 
                                       this->num_docs, 
                                       this->r, 
                                       output_path + ".edap.csv", 
-                                      num_profiles,
-                                      end_doc_profiles2);
+                                      num_profiles);
             DONE_LOG((std::chrono::system_clock::now() - start));
             
             // print number of documents or columns in DAP
@@ -222,9 +220,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         // step 1: print listing for [i+1,end]
                         if (pointer_set) {
                             if (use_end)
-                                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                             else
-                                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
                             std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
 
                             listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
@@ -262,9 +260,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
                             // grab the correct current profile, and update with steps
                             if (use_end)
-                                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                             else
-                                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
                             std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
 
                             listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
@@ -299,9 +297,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     {
                         // grab the correct current profile, and update with steps
                         if (use_end)
-                            curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                         else
-                            curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
                         std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
 
                         listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
@@ -342,9 +340,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
                 // grab the current profile, and update with steps
                 if (use_end)
-                    curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                 else
-                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                 // update profile based on LF steps
                 std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
@@ -879,8 +877,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     curr_ch = (curr_ch == 1) ? 0 : curr_ch; // TODO: figure out why $ is 1, but placed in 0
                     size_t curr_pos = ch_pos[curr_ch];
 
-                    curr_start_profile = start_doc_profiles[curr_ch][curr_pos];
-                    curr_end_profile = end_doc_profiles[curr_ch][curr_pos];
+                    curr_start_profile = start_doc_profiles2[curr_ch][curr_pos];
+                    curr_end_profile = end_doc_profiles2[curr_ch][curr_pos];
 
                     // Write the profiles to the int vectors
                     size_t start_pos = curr_run_num * num_docs;
@@ -1140,8 +1138,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         // This vectors has the following dimensions: [256][num of ith char][num_docs]
         // This structure stores the DA profiles for each
         // character separately.
-        std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles;
-        std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles;
+        // std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles;
+        // std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles;
         std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles2;
         std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles2;
 
@@ -1284,8 +1282,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                                               size_t num_docs, 
                                               size_t num_runs, 
                                               std::string output_path, 
-                                              size_t num_profiles,
-                                              std::vector<std::vector<std::vector<uint16_t>>>& old_matrix) {
+                                              size_t num_profiles) {
             /* loads a set of document array profiles into their respective matrix */
             
             // step 1: lets open files if we want to write out some number of the profiles

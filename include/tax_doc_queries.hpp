@@ -38,8 +38,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
         // This vectors has the following dimensions: [256][num of ith char][num_docs]
         // This structure stores the DA profiles for each character separately.
-        std::vector<std::vector<std::vector<uint64_t>>> start_doc_profiles;
-        std::vector<std::vector<std::vector<uint64_t>>> end_doc_profiles;
+        // std::vector<std::vector<std::vector<uint64_t>>> start_doc_profiles;
+        // std::vector<std::vector<std::vector<uint64_t>>> end_doc_profiles;
         std::vector<std::vector<std::vector<uint64_t>>> start_doc_profiles2;
         std::vector<std::vector<std::vector<uint64_t>>> end_doc_profiles2;
 
@@ -82,8 +82,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         rle (rle),
                         num_cols (num_cols),
                         ri::r_index<sparse_bv_type, rle_string_t>(),
-                        start_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
-                        end_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
+                        // start_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
+                        // end_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
                         start_doc_profiles2(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
                         end_doc_profiles2(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0)))
         {
@@ -125,6 +125,8 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             // check if we are trying to print out profiles
             output_csv_path.assign(output_path);
             if (output_csv_path.length()) {
+                FATAL_ERROR("needs to be updated due to recent changes");
+
                 print_profiles = true;
                 this->profiles_to_print = (num_profiles == 0 || num_profiles > this->r) ? this->r : num_profiles;
                 csv_sdap_output.open(output_csv_path + ".sdap.csv");
@@ -132,25 +134,25 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
 
             // read the document array main table
-            if (verbose) {STATUS_LOG("build_profiles", "loading the document array profiles");}
-            start = std::chrono::system_clock::now();
+            // if (verbose) {STATUS_LOG("build_profiles", "loading the document array profiles");}
+            // start = std::chrono::system_clock::now();
 
-            read_doc_profiles_main_table(start_doc_profiles, filename + ".taxcomp.sdap", &csv_sdap_output);
-            read_doc_profiles_main_table(end_doc_profiles, filename + ".taxcomp.edap", &csv_edap_output);
+            // read_doc_profiles_main_table(start_doc_profiles, filename + ".taxcomp.sdap", &csv_sdap_output);
+            // read_doc_profiles_main_table(end_doc_profiles, filename + ".taxcomp.edap", &csv_edap_output);
             
-            if (print_profiles) {
-                csv_sdap_output.close();
-                csv_edap_output.close();
-            }
-            if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
+            // if (print_profiles) {
+            //     csv_sdap_output.close();
+            //     csv_edap_output.close();
+            // }
+            // if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
 
             // read in the document array main table (using new way)
-            if (verbose) {STATUS_LOG("build_profiles", "loading document array profiles (new-way)");}
+            if (verbose) {STATUS_LOG("build_profiles", "loading document array profiles");}
             start = std::chrono::system_clock::now();
 
-            read_doc_profiles_main_table_new_way(start_doc_profiles2, filename + ".taxcomp.sdap", filename + ".taxcomp.ofptr.sdap", filename + ".runcnt", start_doc_profiles);
-            read_doc_profiles_main_table_new_way(end_doc_profiles2, filename + ".taxcomp.edap", filename + ".taxcomp.ofptr.edap", filename + ".runcnt", end_doc_profiles);
-            
+            read_doc_profiles_main_table_new_way(start_doc_profiles2, filename + ".taxcomp.sdap", filename + ".taxcomp.ofptr.sdap", filename + ".runcnt");
+            read_doc_profiles_main_table_new_way(end_doc_profiles2, filename + ".taxcomp.edap", filename + ".taxcomp.ofptr.edap", filename + ".runcnt");
+
             if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
 
             // load the overflow files
@@ -508,9 +510,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         // step 1: print listing for [i+1,end]
                         if (pointer_set) {
                             if (use_end)
-                                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                             else
-                                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                             idx = 0;
                             std::for_each(curr_profile.begin(), 
@@ -555,9 +557,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
                             // grab the correct current profile, and update with steps
                             if (use_end)
-                                curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                             else
-                                curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                                curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                             idx = 0;
                             std::for_each(curr_profile.begin(), 
@@ -598,9 +600,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     {
                         // grab the correct current profile, and update with steps
                         if (use_end)
-                            curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                         else
-                            curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                            curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                         idx = 0;
                         std::for_each(curr_profile.begin(), 
@@ -647,9 +649,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
                 // grab the current profile, and update with steps
                 if (use_end)
-                    curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                 else
-                    curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                    curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                 // Update profile based on LF steps
                 idx = 0;
@@ -1827,10 +1829,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         void read_doc_profiles_main_table_new_way(std::vector<std::vector<std::vector<uint64_t>>>& prof_matrix, 
                                                   std::string input_file,
                                                   std::string of_ptrs,
-                                                  std::string runcnt_file,
-                                                  std::vector<std::vector<std::vector<uint64_t>>>& old_matrix) {
+                                                  std::string runcnt_file) {
             /* load the document array profiles: main table and overflow pointers */
-            
+
             // declare vectors to receive data
             std::vector<uint16_t> main_table(this->r * (this->num_cols * 4 + 1));
             std::vector<size_t> overflow_ptrs(this->r);
@@ -1848,7 +1849,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             fin_main.read(reinterpret_cast<char*>(main_table.data()), this->r * (this->num_cols * 4 + 1) * sizeof(uint16_t));
             fin_ptrs.read(reinterpret_cast<char*>(overflow_ptrs.data()), this->r * sizeof(size_t));
             fin_runcnt.read(reinterpret_cast<char*>(true_ch_run_cnt.data()), 256 * sizeof(uint64_t));
-
+                        
             // reserve space for document array table to avoid reallocations
             for(size_t i = 0; i < 256; i++) {
                 prof_matrix[i].resize(true_ch_run_cnt[i]); // second dimension
