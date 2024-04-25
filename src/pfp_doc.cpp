@@ -111,6 +111,16 @@ int build_main(int argc, char** argv) {
     }
     std::cerr << "\n";
 
+    // serialize BWT & F to disk for quick loading at query time
+    if (!build_opts.use_taxcomp && !build_opts.use_topk) {
+        doc_queries doc_queries_obj(build_opts.output_ref, 7);
+    } else if (build_opts.use_taxcomp) {
+        tax_doc_queries tax_queries_obj(build_opts.output_ref);
+    } else if (build_opts.use_topk) {
+        FATAL_ERROR("Not implemented yet ...");
+    }
+    std::cerr << "\n";
+
      // build the f_tab if requested
     if (build_opts.make_ftab) {
         FORCE_LOG("cliffy::log", "\033[1m\033[32mbuilding ftab to speed-up querying\033[0m");
@@ -118,6 +128,7 @@ int build_main(int argc, char** argv) {
         if (!build_opts.use_taxcomp && !build_opts.use_topk){
             // build query object, and then build ftab index
             doc_queries doc_queries_obj(build_opts.output_ref);
+
             size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
 
             STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
@@ -134,6 +145,7 @@ int build_main(int argc, char** argv) {
         } else if (build_opts.use_taxcomp) {
             // build query object, and then build ftab index
             tax_doc_queries tax_queries_obj(build_opts.output_ref, build_opts.numcolsintable);
+            
             size_t curr_ftab_entry_length = (build_opts.use_minimizers) ? FTAB_ENTRY_LENGTH_MIN : FTAB_ENTRY_LENGTH;
 
             STATUS_LOG("cliffy::log", "generating ftab for all possible %d-mers", curr_ftab_entry_length);
@@ -151,10 +163,6 @@ int build_main(int argc, char** argv) {
         }
         std::cerr << "\n";
     }
-
-
-
-
 
     // print out full time
     auto build_time = std::chrono::duration<double>((std::chrono::system_clock::now() - build_start));

@@ -23,6 +23,34 @@ template <class sparse_bv_type = ri::sparse_sd_vector,
 class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 {
     public:
+        doc_queries(std::string filename, size_t dummy_val): ri::r_index<sparse_bv_type, rle_string_t>()
+        {
+            /* special constructor: used to load raw BWT files and then serialize them */
+            
+            // load the BWT from *.heads and *.len files
+            STATUS_LOG("query_main", "serializing BWT and F to disk");
+            auto start = std::chrono::system_clock::now();
+
+            std::string bwt_fname = filename + ".bwt";
+            load_bwt_structure(bwt_fname);
+
+            // serialize using the rle_string serialize
+            std::string outfile = filename + ".bwt.cliffy";
+            std::ofstream out_bwt(outfile);
+
+            serialize_bwt(out_bwt);
+            out_bwt.close();
+
+            // serialize the F array to a binary file
+            outfile = filename + ".F.cliffy";
+            std::ofstream out_F(outfile, std::ios::binary);
+
+            serialize_F(out_F);
+            out_F.close();
+
+            DONE_LOG((std::chrono::system_clock::now() - start));
+        }
+
         doc_queries(std::string filename,
                     std::string output_path="", 
                     size_t num_profiles=0, 
@@ -31,14 +59,27 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     rle(rle),
                     output_ref(filename),
                     start_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
-                    end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
+                    end_doc_profiles(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
+                    start_doc_profiles2(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0))),
+                    end_doc_profiles2(256, std::vector<std::vector<uint16_t>>(0, std::vector<uint16_t>(0)))
         {
-            // load the BWT
-            STATUS_LOG("query_main", "loading the bwt of the input text");
+            // load the BWT & F
+            STATUS_LOG("query_main", "loading the bwt of the input text and F column");
             auto start = std::chrono::system_clock::now();
 
-            std::string bwt_fname = filename + ".bwt";
-            load_bwt_structure(bwt_fname);
+            std::string bwt_fname = filename + ".bwt.cliffy";
+            std::ifstream bwt_fd(bwt_fname);
+            
+            this->bwt.load(bwt_fd);
+            bwt_fd.close();
+
+            std::string F_fname = filename + ".F.cliffy";
+            std::ifstream fin_F (F_fname, std::ios::binary | std::ios::in);
+            
+            this->F.resize(256);
+            fin_F.read((char*) this->F.data(), 256 * sizeof(uint64_t));
+            fin_F.close();
+
             DONE_LOG((std::chrono::system_clock::now() - start));
 
             // gather some statistics on the BWT
@@ -56,14 +97,43 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             STATUS_LOG("query_main", "loading the document array profiles");
             start = std::chrono::system_clock::now();
             
-            read_doc_profiles(start_doc_profiles, filename + ".sdap", 
-                              this->num_docs, this->r, 
-                              output_path + ".sdap.csv", num_profiles);
-            read_doc_profiles(end_doc_profiles, filename + ".edap", 
-                              this->num_docs, this->r, 
-                              output_path + ".edap.csv", num_profiles);
+            read_doc_profiles(start_doc_profiles, 
+                              filename + ".sdap", 
+                              this->num_docs, 
+                              this->r, 
+                              output_path + ".sdap.csv", 
+                              num_profiles);
+            read_doc_profiles(end_doc_profiles, 
+                              filename + ".edap", 
+                              this->num_docs, 
+                              this->r, 
+                              output_path + ".edap.csv", 
+                              num_profiles);
             DONE_LOG((std::chrono::system_clock::now() - start));
 
+            // load the profiles for starts and ends (new-way)
+            STATUS_LOG("query_main", "loading the document array profiles (new-way)");
+            start = std::chrono::system_clock::now();
+            
+            read_doc_profiles_new_way(start_doc_profiles2, 
+                                      filename + ".sdap", 
+                                      filename + ".runcnt",
+                                      this->num_docs, 
+                                      this->r, 
+                                      output_path + ".sdap.csv", 
+                                      num_profiles,
+                                      start_doc_profiles);
+            read_doc_profiles_new_way(end_doc_profiles2, 
+                                      filename + ".edap",
+                                      filename + ".runcnt", 
+                                      this->num_docs, 
+                                      this->r, 
+                                      output_path + ".edap.csv", 
+                                      num_profiles,
+                                      end_doc_profiles2);
+            DONE_LOG((std::chrono::system_clock::now() - start));
+            
+            // print number of documents or columns in DAP
             STATS_LOG("query_main", "number of documents: d = %ld" , num_docs);
             std::cerr << "\n";
         }
@@ -354,9 +424,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     // grab the correct current profile
                     std::vector<uint16_t> curr_profile (this->num_docs, 0);
                     if (use_end)
-                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                     else
-                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                     // update it with LF steps, and print out start/end
                     std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
@@ -579,9 +649,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     // grab the correct current profile
                     std::vector<uint16_t> curr_profile (this->num_docs, 0);
                     if (use_end)
-                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                     else
-                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                     // update it with LF steps
                     std::for_each(curr_profile.begin(), curr_profile.end(), [&](uint16_t &x){x = std::min((size_t) MAXLCPVALUE, x+num_LF_steps);});
@@ -1072,6 +1142,8 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         // character separately.
         std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles;
         std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles;
+        std::vector<std::vector<std::vector<uint16_t>>> start_doc_profiles2;
+        std::vector<std::vector<std::vector<uint16_t>>> end_doc_profiles2;
 
         // This represents the ftab, it is represented as a vector
         // of vectors, indexed by the k-mer and the vectors stores
@@ -1112,6 +1184,18 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
         }
 
+        void serialize_bwt(std::ostream &out, sdsl::structure_tree_node *v = nullptr, std::string name = "") {
+            sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+            size_t bwt_size = this->bwt.serialize(out);
+            sdsl::structure_tree::add_size(child, bwt_size);
+        }
+
+        void serialize_F(std::ostream &out){
+            for (const auto& value: this->F) {
+                out.write(reinterpret_cast<const char*>(&value), sizeof(uint64_t));
+            }
+        }
+
         void check_doc_array_files(std::string fname) {
             /* Examines the file size and make sure it is the correct size */
             struct stat filestat;
@@ -1127,7 +1211,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 FATAL_ERROR(("fread() file " + fname + " failed").data()); 
             fclose(fd);
 
-            if (filestat.st_size != ((num_docs * this->r * DOCWIDTH) + sizeof(size_t) + this->r))
+            if (filestat.st_size != (((num_docs+1) * this->r * DOCWIDTH) + sizeof(size_t)))
                 FATAL_ERROR("invalid file size for *dap files");      
         }
 
@@ -1135,7 +1219,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                                     size_t num_runs, std::string output_path, size_t num_profiles) {
             /* loads a set of document array profiles into their respective matrix */
 
-            // First, lets open the file and verify the size/# of docs are valid
+            // step 1: lets open the file and verify the size/# of docs are valid
             struct stat filestat; FILE *fd;
 
             if ((fd = fopen(input_file.c_str(), "r")) == nullptr)
@@ -1149,9 +1233,9 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 error("fread() file " + input_file + " failed"); 
 
             ASSERT((num_docs_found == num_docs), "mismatch in the number of documents.");
-            ASSERT((filestat.st_size == ((num_docs * num_runs * DOCWIDTH) + sizeof(size_t) + num_runs)), "invalid file size.");
+            ASSERT((filestat.st_size == (((num_docs+1) * num_runs * DOCWIDTH) + sizeof(size_t))), "invalid file size.");
 
-            // Second, lets open files if we want to write out some number of the profiles
+            // step 2: lets open files if we want to write out some number of the profiles
             std::ofstream dap_csv_file;
             bool print_to_file = (output_path.size() > 9); // Not just .sdap.csv
             size_t profiles_to_print = 0;
@@ -1161,15 +1245,16 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 profiles_to_print = (num_profiles == 0 || num_profiles > num_runs) ? num_runs : num_profiles; 
             }
 
-            // Thirdly, go through the rest of file and fill in the profiles. Each 
+            // step 3: go through the rest of file and fill in the profiles. Each 
             // profile will start with the BWT character which we will use figure out which
             // list to put it in.
             size_t curr_val = 0;
             for (size_t i = 0; i < num_runs; i++) {
                 uint8_t curr_bwt_ch = 0;
 
-                if (fread(&curr_bwt_ch, 1, 1, fd) != 1)
+                if (fread(&curr_bwt_ch, DOCWIDTH, 1, fd) != 1)
                     FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
+                ASSERT((curr_bwt_ch < 256), "invalid BWT character found in doc profiles file.");
 
                 std::vector<uint16_t> curr_profile (num_docs, 0);
                 for (size_t j = 0; j < num_docs; j++) {
@@ -1177,7 +1262,7 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         error("fread() file " + input_file + " failed"); 
                     curr_profile[j] = curr_val;
                     
-                    // Check if we want to print
+                    // check if we want to print
                     if (print_to_file) {
                         if (j < (num_docs-1))
                             dap_csv_file << curr_val << ",";
@@ -1189,6 +1274,98 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
             fclose(fd);
 
+            if (print_to_file)
+                dap_csv_file.close();
+        }
+
+        static void read_doc_profiles_new_way(std::vector<std::vector<std::vector<uint16_t>>>& prof_matrix, 
+                                              std::string input_file, 
+                                              std::string runcnt_file,
+                                              size_t num_docs, 
+                                              size_t num_runs, 
+                                              std::string output_path, 
+                                              size_t num_profiles,
+                                              std::vector<std::vector<std::vector<uint16_t>>>& old_matrix) {
+            /* loads a set of document array profiles into their respective matrix */
+            
+            // step 1: lets open files if we want to write out some number of the profiles
+            std::ofstream dap_csv_file;
+            bool print_to_file = (output_path.size() > 9); // Not just .sdap.csv
+            size_t profiles_to_print = 0;
+
+            if (print_to_file){ 
+                dap_csv_file.open(output_path);
+                profiles_to_print = (num_profiles == 0 || num_profiles > num_runs) ? num_runs : num_profiles; 
+            }
+            
+            // step 2: load in the entire document array profiles structures (1 columns for BWT + d columns of LCP values)
+            std::vector<uint16_t> main_table(num_runs * (num_docs + 1));
+            std::ifstream fin_main(input_file, std::ios::binary | std::ios::in);
+
+            /* IMPORTANT: skip the first 8 bytes since that is the number of documents */
+            fin_main.seekg(8, std::ios::beg);
+            fin_main.read(reinterpret_cast<char*>(main_table.data()), num_runs * (num_docs + 1) * sizeof(uint16_t));
+
+            // step 3: load in the number of runs of each character
+            std::vector<uint64_t> true_ch_run_cnt(256);
+            std::ifstream fin_runcnt(runcnt_file, std::ios::binary | std::ios::in);
+            
+            fin_runcnt.seekg(0, std::ios::beg);
+            fin_runcnt.read(reinterpret_cast<char*>(true_ch_run_cnt.data()), 256 * sizeof(uint64_t));
+
+            // step 4: reserve space for document array table to avoid reallocations
+            for(size_t i = 0; i < 256; i++) {
+                prof_matrix[i].resize(true_ch_run_cnt[i]); 
+                for(size_t j = 0; j < true_ch_run_cnt[i]; j++) {
+                    prof_matrix[i][j].resize(num_docs);
+                    ASSERT((prof_matrix[i][j].capacity() == (num_docs)), "issue with capacity of prof_matrix[i][j].");
+                }
+            }
+
+            // step 5: go through each run, and place it in corresponding bwt character list
+            size_t run_i = 0;
+            std::vector<size_t> curr_num_ch_runs(256, 0);
+
+            for (size_t pos = 0; pos < (num_runs * (num_docs + 1)); pos += (num_docs + 1)) {
+                // step 5a: get the current bwt run char
+                uint16_t curr_bwt_ch = main_table[pos];
+                ASSERT((curr_bwt_ch < 256), "invalid bwt character in tax_doc_query main_table read().");
+
+                // step 5b: get the run id for this bwt char to locate the right vector
+                size_t run_bwt_ch_i = curr_num_ch_runs[curr_bwt_ch];
+                ASSERT((run_bwt_ch_i < true_ch_run_cnt[curr_bwt_ch]), "run_bwt_ch_i is out of bounds.");
+
+                // step 5c: go through each value and place it directly in array
+                ASSERT((prof_matrix[curr_bwt_ch][run_bwt_ch_i].size() == (num_docs)), "issue with size of prof_matrix[i][j].");
+                for (size_t j = 0; j < (num_docs); j++) {
+                    prof_matrix[curr_bwt_ch][run_bwt_ch_i][j] = main_table[pos+j+1];
+
+                    // check if we want to print
+                    if (print_to_file && profiles_to_print) {
+                        if (j < (num_docs-1))
+                            dap_csv_file << main_table[pos+j+1] << ",";
+                        else
+                            dap_csv_file << main_table[pos+j+1] << "\n";
+                    }
+                }
+                // keep decrementing until zero, this is size_t so don't want overflow
+                if (profiles_to_print > 0) profiles_to_print--;
+
+                // optional code: check and make sure they are equal to old version
+                // if (!std::equal(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin())) {
+                //     std::cout << "run i = " << run_i << std::endl;
+                //     std::copy(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+                //     std::copy(prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+
+                //     std::cout << "difference found!\n"; std::exit(1);
+                // }
+
+                // step 5d: increment the num of runs for curr ch, and total run id
+                curr_num_ch_runs[curr_bwt_ch]++;
+                run_i++;
+            }
+
+            // step 6: close file if opened in first place
             if (print_to_file)
                 dap_csv_file.close();
         }

@@ -40,6 +40,36 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         // This structure stores the DA profiles for each character separately.
         std::vector<std::vector<std::vector<uint64_t>>> start_doc_profiles;
         std::vector<std::vector<std::vector<uint64_t>>> end_doc_profiles;
+        std::vector<std::vector<std::vector<uint64_t>>> start_doc_profiles2;
+        std::vector<std::vector<std::vector<uint64_t>>> end_doc_profiles2;
+
+        tax_doc_queries(std::string filename): ri::r_index<sparse_bv_type, rle_string_t>() 
+        {
+            /* special constructor: used for only loading BWT from raw files */
+            
+            STATUS_LOG("query_main", "serializing BWT and F to disk");
+            auto start = std::chrono::system_clock::now();
+
+            // load from raw data: *.heads and *.len files
+            std::string bwt_fname = filename + ".bwt";
+            load_bwt_structure(bwt_fname);
+
+            // serialize using the rle_string serialize
+            std::string outfile = filename + ".bwt.cliffy";
+            std::ofstream out_bwt(outfile);
+
+            serialize_bwt(out_bwt);
+            out_bwt.close();
+
+            // serialize the F array to a binary file
+            outfile = filename + ".F.cliffy";
+            std::ofstream out_F(outfile, std::ios::binary);
+
+            serialize_F(out_F);
+            out_F.close();
+
+            DONE_LOG((std::chrono::system_clock::now() - start));
+        }
 
         tax_doc_queries(std::string filename,
                         size_t num_cols,
@@ -53,14 +83,29 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         num_cols (num_cols),
                         ri::r_index<sparse_bv_type, rle_string_t>(),
                         start_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
-                        end_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0)))
+                        end_doc_profiles(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
+                        start_doc_profiles2(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0))),
+                        end_doc_profiles2(256, std::vector<std::vector<uint64_t>>(0, std::vector<uint64_t>(0)))
         {
-            // load the BWT 
-            if (verbose) {STATUS_LOG("query_main", "loading the bwt of the input text");}
+            /* main constructor: used during the query phase and ftab generation */
+            
+            // load the BWT & F
+            if (verbose) {STATUS_LOG("query_main", "loading the bwt of the input text and F column");}
             auto start = std::chrono::system_clock::now();
 
-            std::string bwt_fname = filename + ".bwt";
-            load_bwt_structure(bwt_fname);
+            std::string bwt_fname = filename + ".bwt.cliffy";
+            std::ifstream bwt_fd(bwt_fname);
+            
+            this->bwt.load(bwt_fd);
+            bwt_fd.close();
+
+            std::string F_fname = filename + ".F.cliffy";
+            std::ifstream fin_F (F_fname, std::ios::binary | std::ios::in);
+            
+            this->F.resize(256);
+            fin_F.read((char*) this->F.data(), 256 * sizeof(uint64_t));
+            fin_F.close();
+
             if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
 
             // gather some statistics on the BWT
@@ -73,6 +118,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             // check file size and make sure it is valid
             check_doc_array_files(filename + ".taxcomp.sdap");
             check_doc_array_files(filename + ".taxcomp.sdap");
+            check_doc_array_ofptr_files(filename + ".taxcomp.ofptr.sdap");
+            check_doc_array_ofptr_files(filename + ".taxcomp.ofptr.edap");
+            check_doc_array_runcnt_file(filename + ".runcnt");
 
             // check if we are trying to print out profiles
             output_csv_path.assign(output_path);
@@ -89,11 +137,20 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
 
             read_doc_profiles_main_table(start_doc_profiles, filename + ".taxcomp.sdap", &csv_sdap_output);
             read_doc_profiles_main_table(end_doc_profiles, filename + ".taxcomp.edap", &csv_edap_output);
-
+            
             if (print_profiles) {
                 csv_sdap_output.close();
                 csv_edap_output.close();
             }
+            if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
+
+            // read in the document array main table (using new way)
+            if (verbose) {STATUS_LOG("build_profiles", "loading document array profiles (new-way)");}
+            start = std::chrono::system_clock::now();
+
+            read_doc_profiles_main_table_new_way(start_doc_profiles2, filename + ".taxcomp.sdap", filename + ".taxcomp.ofptr.sdap", filename + ".runcnt", start_doc_profiles);
+            read_doc_profiles_main_table_new_way(end_doc_profiles2, filename + ".taxcomp.edap", filename + ".taxcomp.ofptr.edap", filename + ".runcnt", end_doc_profiles);
+            
             if (verbose) {DONE_LOG((std::chrono::system_clock::now() - start));}
 
             // load the overflow files
@@ -651,29 +708,30 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         
             // alternate lambda to print out the document listing, that
             // will be tested to see if it improves classification
-            auto process_profile_with_subtree = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end) {
+            auto process_profile_with_subtree = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end, size_t num_LF_steps) {
                     bool left_done = false, right_done = false;
                     std::vector<uint64_t> left_docs;
                     std::vector<uint64_t> right_docs;
                     size_t tuple_num = 0;
 
+                    // debug code:
                     // std::cout << "length: " << length << std::endl;
                     // std::cout << "profile: ";
                     // for (auto x: profile)
                     //     std::cout << x << " ";
                     // std::cout << "\n";
 
-                    // Iterates through the main table ...
+                    // iterates through the main table pairs ...
                     while ((!left_done || !right_done) && (tuple_num < (this->num_cols * 4))) {   
 
-                        // Checks if the LCP value has reached the max, and
+                        // base case: checks if the LCP value has reached the max, and
                         // the monotonic increases have ended
                         if (profile[tuple_num] == MAXLCPVALUE)
                             left_done = true;
                         if (profile[tuple_num+2] == MAXLCPVALUE)
                             right_done = true;
 
-                        // Check if increases in either direction are still going, and 
+                        // query step: check if increases in either direction are still going, and 
                         // lcp is greater than query length
                         if (!left_done && profile[tuple_num+1] >= length) {
                             left_docs.push_back(profile[tuple_num]);
@@ -684,12 +742,12 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         tuple_num += 4;
                     }
 
-                    // Double-check that if we haven't found the leftmost or rightmost
-                    // document that there are still some documents to look at in overflow file
+                    // error case: when we have not found any documents in either direction
+                    // and we have run out of pairs to look at.
                     if ((left_docs.size() == 0 && left_done) || (right_docs.size() == 0 && right_done))
                         FATAL_ERROR("Issue occurred when querying the taxonomic document array.");
 
-                    // Grab the overflow pointer based on which type of profiles was used
+                    // grab the overflow pointer based on which type of profiles was used
                     char* of_ptr = nullptr;
                     if (use_end)
                         of_ptr = mmap_edap_of;
@@ -697,88 +755,107 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         of_ptr = mmap_sdap_of;
                     size_t of_pos = profile[this->num_cols * 4];
 
-                    // Make sure that both directions are done based on overflow ptr
+                    // make sure that both directions are done based on overflow ptr
                     if (of_pos == 0) {
                         left_done = true;
                         right_done = true;
-                        assert((left_done && right_done));
+                        ASSERT((left_done && right_done), "error occurred when querying profile (1)");
                     }
-                    // std::cout << leftmost_found << " " << rightmost_found << std::endl;
-                    // std::cout << of_pos << std::endl;
                     
-                    // Use overflow file for left to right direction ...
+                    // overflow file: left to right direction ...
                     if (!left_done) {
-                        // std::cout << "left is not done!" << std::endl;
-                        assert(of_pos != 0);
+                        //std::cout << "left overflow" << std::endl;
+                        ASSERT((of_pos != 0), "error occurred when querying profile (2)");
 
                         size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
-                        assert(num_left_pairs < 256);
+                        ASSERT((num_left_pairs < 256), "error occurred when querying profile (3)");
                         of_pos += 1;
-                        // std::cout << "num_pairs_left = " << num_left_pairs << "\n";
 
-                        // Go through all the L2R pairs
+                        //std::cout << "num_left_pairs = " << num_left_pairs << "\n";
+
+                        // iterate through L2R pairs in overflow
                         for (size_t i = 0; i < num_left_pairs; i++){
                             size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
                             size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
-                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
 
+                            lcp_val = std::min((size_t) MAXLCPVALUE, lcp_val+num_LF_steps);
+                            //std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
                             if (lcp_val >= length) {
                                 left_docs.push_back(doc_id);
-                                //leftmost_doc = doc_id;
-                                //leftmost_found = true;
-                                //break;
                             }
                         }
                     }
-                    // Use overflow file for right to left direction ...
+                    // overflow file: right to left direction ...
                     if (!right_done) {
-                        // std::cout << "right is not done!" << std::endl;
+                        //std::cout << "right overflow!" << std::endl;
                         of_pos = profile[this->num_cols * 4];
-                        assert(of_pos != 0);
+                        ASSERT((of_pos != 0), "error occurred when querying profile (4)");
 
-                        // Move past the left pairs to right pairs
+                        // move past the L2R pairs
                         size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
-                        assert(num_left_pairs < 256);
+                        ASSERT((num_left_pairs < 256), "error occurred when querying profile (5)");
                         of_pos += 1 + (DOCWIDTH * 2 * num_left_pairs);
 
                         size_t num_right_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
-                        assert(num_right_pairs < 256);
+                        ASSERT((num_right_pairs < 256), "error occurred when querying profile (6)");
                         of_pos += 1;
-                        // std::cout << "num_pairs_right = " << num_right_pairs << "\n";
 
-                        // Go through all the R2L pairs
+                        //std::cout << "num_left_pairs = " << num_left_pairs << "\n";
+                        //std::cout << "num_right_pairs = " << num_right_pairs << "\n";
+
+                        // iterate through all the R2L pairs
                         for (size_t i = 0; i < num_right_pairs; i++){
                             size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
                             size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
-                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
+                            //std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
                             
+                            lcp_val = std::min((size_t) MAXLCPVALUE, lcp_val+num_LF_steps);
                             if (lcp_val >= length) {
                                 right_docs.push_back(doc_id);
-                                //rightmost_doc = doc_id;
-                                //rightmost_found = true;
-                                //break;
                             }
                         }
                     }
-                    // Make sure we have found both documents in 
-                    // both directions, and they end with same doc
-                    assert((left_docs.size() && right_docs.size()));
-                    assert ((left_docs.back() == right_docs.back()));
 
-                    // Remove the last document from one of the vectors
-                    left_docs.pop_back();
-
-                    // std::cout << "left docs: ";
                     // for (auto x: left_docs)
                     //     std::cout << x << " ";
                     // std::cout << "\n";
-                    // std::cout << "right docs: ";
                     // for (auto x: right_docs)
                     //     std::cout << x << " ";
                     // std::cout << "\n";
 
-                    // Output the leftmost/rightmost nodes along with
-                    // nodes underneath with hit
+                    // sanity check: the left and right docs vectors should share the
+                    // documents at the end. edge case is if we have multiple documents
+                    // with MAXLCPVALUE so multiple peaks in the profile.
+                    size_t amount_to_remove = 0;
+                    size_t min_size = std::min(left_docs.size(), right_docs.size());
+                    if (left_docs.back() != right_docs.back()) {
+                        bool found = false;
+                        for (size_t k = 2; k <= min_size; k++) {
+                            std::vector<uint64_t> sub_vec1 (left_docs.end()-k, left_docs.end());
+                            std::vector<uint64_t> sub_vec2 (right_docs.rbegin(), right_docs.rbegin()+k);
+
+                            if (sub_vec1 == sub_vec2) {
+                                found = true;
+                                amount_to_remove = k;
+                                break;
+                            }
+                        }
+                        if (!found)
+                            FATAL_ERROR("error occurred when querying profile (7)");
+                    } else {
+                        amount_to_remove = 1;
+                    }
+
+                    // sanity check: the last document found in both direction
+                    // should be the same, and make sure we found something for both
+                    ASSERT((left_docs.size() && right_docs.size()), "error occurred when querying profile (8)");
+
+                    // remove the overlapping documents from left one
+                    for (size_t k = 0; k < amount_to_remove; k++)
+                        left_docs.pop_back();
+
+                    // output: leftmost/rightmost nodes along with
+                    // nodes between them that have a hit
                     std::string output_str = "{";
                     for (auto x: left_docs)
                         output_str += std::to_string(x) + ",";
@@ -802,9 +879,9 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     // grab the correct current profile
                     std::vector<uint64_t> curr_profile (this->num_cols * 4, 0);
                     if (use_end)
-                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                     else
-                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                     // update profile based on LF steps
                     idx = 0;
@@ -818,7 +895,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
 
                     length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
-                    process_profile_with_subtree(curr_profile, length, use_end);
+                    process_profile_with_subtree(curr_profile, length, use_end, num_LF_steps);
                     end_pos_of_match = i;
                 }
             };
@@ -1008,29 +1085,30 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
         
             // alternate lambda to print out the document listing, that
             // will be tested to see if it improves classification
-            auto process_profile_with_subtree = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end) {
+            auto process_profile_with_subtree = [&](std::vector<uint64_t> profile, uint16_t length, bool use_end, size_t num_LF_steps) {
                     bool left_done = false, right_done = false;
                     std::vector<uint64_t> left_docs;
                     std::vector<uint64_t> right_docs;
                     size_t tuple_num = 0;
 
+                    // debug code:
                     // std::cout << "length: " << length << std::endl;
                     // std::cout << "profile: ";
                     // for (auto x: profile)
                     //     std::cout << x << " ";
                     // std::cout << "\n";
 
-                    // Iterates through the main table ...
+                    // iterates through the main table pairs ...
                     while ((!left_done || !right_done) && (tuple_num < (this->num_cols * 4))) {   
 
-                        // Checks if the LCP value has reached the max, and
+                        // base case: checks if the LCP value has reached the max, and
                         // the monotonic increases have ended
                         if (profile[tuple_num] == MAXLCPVALUE)
                             left_done = true;
                         if (profile[tuple_num+2] == MAXLCPVALUE)
                             right_done = true;
 
-                        // Check if increases in either direction are still going, and 
+                        // query step: check if increases in either direction are still going, and 
                         // lcp is greater than query length
                         if (!left_done && profile[tuple_num+1] >= length) {
                             left_docs.push_back(profile[tuple_num]);
@@ -1041,12 +1119,12 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         tuple_num += 4;
                     }
 
-                    // Double-check that if we haven't found the leftmost or rightmost
-                    // document that there are still some documents to look at in overflow file
+                    // error case: when we have not found any documents in either direction
+                    // and we have run out of pairs to look at.
                     if ((left_docs.size() == 0 && left_done) || (right_docs.size() == 0 && right_done))
                         FATAL_ERROR("Issue occurred when querying the taxonomic document array.");
 
-                    // Grab the overflow pointer based on which type of profiles was used
+                    // grab the overflow pointer based on which type of profiles was used
                     char* of_ptr = nullptr;
                     if (use_end)
                         of_ptr = mmap_edap_of;
@@ -1054,88 +1132,107 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                         of_ptr = mmap_sdap_of;
                     size_t of_pos = profile[this->num_cols * 4];
 
-                    // Make sure that both directions are done based on overflow ptr
+                    // make sure that both directions are done based on overflow ptr
                     if (of_pos == 0) {
                         left_done = true;
                         right_done = true;
-                        assert((left_done && right_done));
+                        ASSERT((left_done && right_done), "error occurred when querying profile (1)");
                     }
-                    // std::cout << leftmost_found << " " << rightmost_found << std::endl;
-                    // std::cout << of_pos << std::endl;
                     
-                    // Use overflow file for left to right direction ...
+                    // overflow file: left to right direction ...
                     if (!left_done) {
-                        // std::cout << "left is not done!" << std::endl;
-                        assert(of_pos != 0);
+                        //std::cout << "left overflow" << std::endl;
+                        ASSERT((of_pos != 0), "error occurred when querying profile (2)");
 
                         size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
-                        assert(num_left_pairs < 256);
+                        ASSERT((num_left_pairs < 256), "error occurred when querying profile (3)");
                         of_pos += 1;
-                        // std::cout << "num_pairs_left = " << num_left_pairs << "\n";
 
-                        // Go through all the L2R pairs
+                        //std::cout << "num_left_pairs = " << num_left_pairs << "\n";
+
+                        // iterate through L2R pairs in overflow
                         for (size_t i = 0; i < num_left_pairs; i++){
                             size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
                             size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
-                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
 
+                            lcp_val = std::min((size_t) MAXLCPVALUE, lcp_val+num_LF_steps);
+                            //std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
                             if (lcp_val >= length) {
                                 left_docs.push_back(doc_id);
-                                //leftmost_doc = doc_id;
-                                //leftmost_found = true;
-                                //break;
                             }
                         }
                     }
-                    // Use overflow file for right to left direction ...
+                    // overflow file: right to left direction ...
                     if (!right_done) {
-                        // std::cout << "right is not done!" << std::endl;
+                        //std::cout << "right overflow!" << std::endl;
                         of_pos = profile[this->num_cols * 4];
-                        assert(of_pos != 0);
+                        ASSERT((of_pos != 0), "error occurred when querying profile (4)");
 
-                        // Move past the left pairs to right pairs
+                        // move past the L2R pairs
                         size_t num_left_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
-                        assert(num_left_pairs < 256);
+                        ASSERT((num_left_pairs < 256), "error occurred when querying profile (5)");
                         of_pos += 1 + (DOCWIDTH * 2 * num_left_pairs);
 
                         size_t num_right_pairs = READ_NUM_PAIRS(of_ptr, of_pos);
-                        assert(num_right_pairs < 256);
+                        ASSERT((num_right_pairs < 256), "error occurred when querying profile (6)");
                         of_pos += 1;
-                        // std::cout << "num_pairs_right = " << num_right_pairs << "\n";
 
-                        // Go through all the R2L pairs
+                        //std::cout << "num_left_pairs = " << num_left_pairs << "\n";
+                        //std::cout << "num_right_pairs = " << num_right_pairs << "\n";
+
+                        // iterate through all the R2L pairs
                         for (size_t i = 0; i < num_right_pairs; i++){
                             size_t doc_id = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
                             size_t lcp_val = READ_DOC_ID_OR_LCP_VAL(of_ptr, of_pos); of_pos += 2;
-                            // std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
+                            //std::cout << "doc = " << doc_id << ", lcp = " << lcp_val << std::endl;
                             
+                            lcp_val = std::min((size_t) MAXLCPVALUE, lcp_val+num_LF_steps);
                             if (lcp_val >= length) {
                                 right_docs.push_back(doc_id);
-                                //rightmost_doc = doc_id;
-                                //rightmost_found = true;
-                                //break;
                             }
                         }
                     }
-                    // Make sure we have found both documents in 
-                    // both directions, and they end with same doc
-                    assert((left_docs.size() && right_docs.size()));
-                    assert ((left_docs.back() == right_docs.back()));
 
-                    // Remove the last document from one of the vectors
-                    left_docs.pop_back();
-
-                    // std::cout << "left docs: ";
                     // for (auto x: left_docs)
                     //     std::cout << x << " ";
                     // std::cout << "\n";
-                    // std::cout << "right docs: ";
                     // for (auto x: right_docs)
                     //     std::cout << x << " ";
                     // std::cout << "\n";
 
-                    // Output the leftmost/rightmost nodes along with
-                    // nodes underneath with hit
+                    // sanity check: the left and right docs vectors should share the
+                    // documents at the end. edge case is if we have multiple documents
+                    // with MAXLCPVALUE so multiple peaks in the profile.
+                    size_t amount_to_remove = 0;
+                    size_t min_size = std::min(left_docs.size(), right_docs.size());
+                    if (left_docs.back() != right_docs.back()) {
+                        bool found = false;
+                        for (size_t k = 2; k <= min_size; k++) {
+                            std::vector<uint64_t> sub_vec1 (left_docs.end()-k, left_docs.end());
+                            std::vector<uint64_t> sub_vec2 (right_docs.rbegin(), right_docs.rbegin()+k);
+
+                            if (sub_vec1 == sub_vec2) {
+                                found = true;
+                                amount_to_remove = k;
+                                break;
+                            }
+                        }
+                        if (!found)
+                            FATAL_ERROR("error occurred when querying profile (7)");
+                    } else {
+                        amount_to_remove = 1;
+                    }
+
+                    // sanity check: the last document found in both direction
+                    // should be the same, and make sure we found something for both
+                    ASSERT((left_docs.size() && right_docs.size()), "error occurred when querying profile (8)");
+
+                    // remove the overlapping documents from left one
+                    for (size_t k = 0; k < amount_to_remove; k++)
+                        left_docs.pop_back();
+
+                    // output: leftmost/rightmost nodes along with
+                    // nodes between them that have a hit
                     std::string output_str = "{";
                     for (auto x: left_docs)
                         output_str += std::to_string(x) + ",";
@@ -1158,11 +1255,13 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 if (pointer_set) {
 
                     // grab the correct current profile
-                    std::vector<uint64_t> curr_profile (this->num_cols * 4, 0);
+                    std::vector<uint64_t> curr_profile (this->num_cols * 4 + 1, 0);
+                    //std::cout << "ch = " << unsigned(curr_prof_ch) << ", pos = " << curr_prof_pos << ", use_end" << use_end << std::endl;
+
                     if (use_end)
-                        curr_profile = end_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = end_doc_profiles2[curr_prof_ch][curr_prof_pos];
                     else
-                        curr_profile = start_doc_profiles[curr_prof_ch][curr_prof_pos];
+                        curr_profile = start_doc_profiles2[curr_prof_ch][curr_prof_pos];
 
                     // update profile based on LF steps
                     idx = 0;
@@ -1176,7 +1275,7 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                     listings_fd << "[" << (i+1) << "," << end_pos_of_match << "] ";
 
                     length = std::min((size_t) MAXLCPVALUE, (end_pos_of_match-i));
-                    process_profile_with_subtree(curr_profile, length, use_end);
+                    process_profile_with_subtree(curr_profile, length, use_end, num_LF_steps);
                     end_pos_of_match = i;
 
                     length_sum += length;
@@ -1622,6 +1721,18 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             }
         }
 
+        void serialize_bwt(std::ostream &out, sdsl::structure_tree_node *v = nullptr, std::string name = "") {
+            sdsl::structure_tree_node *child = sdsl::structure_tree::add_child(v, name, sdsl::util::class_name(*this));
+            size_t bwt_size = this->bwt.serialize(out);
+            sdsl::structure_tree::add_size(child, bwt_size);
+        }
+
+        void serialize_F(std::ostream &out){
+            for (const auto& value: this->F) {
+                out.write(reinterpret_cast<const char*>(&value), sizeof(uint64_t));
+            }
+        }
+
         void check_doc_array_files(std::string fname) {
             /* Examines the file size and make sure it is the correct size */
             struct stat filestat;
@@ -1633,9 +1744,39 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 error("stat() file " + fname + " failed");
 
             // calculate the size of each row of table and check file is correct size
-            size_t record_size = 1 + (8 * this->num_cols) + 8;
+            size_t record_size = 2 + (8 * this->num_cols);
             if (filestat.st_size != (record_size * this->r))
                 FATAL_ERROR("the file size for the document array is not valid.");
+            fclose(fd);
+        }
+
+        void check_doc_array_ofptr_files(std::string fname) {
+            struct stat filestat;
+            FILE *fd;
+
+            if ((fd = fopen(fname.c_str(), "r")) == nullptr)
+                error("open() file " + fname + " failed");
+            if (fstat(fileno(fd), &filestat) < 0)
+                error("stat() file " + fname + " failed");
+
+            // make sure file size is equal to r times size of each ptr (8 bytes)
+            if (filestat.st_size != (8 * this->r))
+                FATAL_ERROR("the file size for the document array is not valid.");
+            fclose(fd);
+        }
+
+        void check_doc_array_runcnt_file(std::string fname) {
+            struct stat filestat;
+            FILE *fd;
+
+            if ((fd = fopen(fname.c_str(), "r")) == nullptr)
+                error("open() file " + fname + " failed");
+            if (fstat(fileno(fd), &filestat) < 0)
+                error("stat() file " + fname + " failed");
+
+            // make sure file size is equal to r times size of each ptr (8 bytes)
+            if (filestat.st_size != (sizeof(uint64_t) * 256))
+                FATAL_ERROR("the file size for the *.runcnt is not valid.");
             fclose(fd);
         }
 
@@ -1654,11 +1795,12 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             uint8_t curr_bwt_ch = 0;
             for (size_t i = 0; i < this->r; i++){
                 // Step 1: reading bwt character
-                if (fread(&curr_bwt_ch, 1, 1, fd) != 1)
+                if (fread(&curr_bwt_ch, DOCWIDTH, 1, fd) != 1)
                     FATAL_ERROR("issue occurred while reading in bwt character from doc profiles file.");
+                ASSERT((curr_bwt_ch < 256), "invalid bwt character in tax_doc_querie main_table read().");
 
                 // Step 2: reading all the left and right increase pairs
-                std::vector<uint64_t> curr_record ((num_cols * 4) + 1, 0);
+                std::vector<uint64_t> curr_record ((num_cols * 4), 0);
                 for (size_t j = 0; j < (num_cols*4); j++) {
                     if ((fread(&curr_val, DOCWIDTH, 1, fd)) != 1)
                         FATAL_ERROR("fread() failed"); 
@@ -1666,19 +1808,87 @@ class tax_doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 }
 
                 // Step 3: read the overflow pointer value
-                size_t of_ptr = 0;
-                if (fread(&of_ptr, 8, 1, fd) != 1)
-                    FATAL_ERROR("fread() failed");
-                curr_record[(num_cols * 4)] = of_ptr;
+                // size_t of_ptr = 0;
+                // if (fread(&of_ptr, 8, 1, fd) != 1)
+                //     FATAL_ERROR("fread() failed");
+                // curr_record[(num_cols * 4)] = of_ptr;
 
                 // If we are print out the profiles ...
-                if (print_profiles && i < profiles_to_print) {
-                    *out_fd << curr_bwt_ch << ",";
-                    for (auto x: curr_record)
-                        *out_fd << x << ",";
-                    *out_fd << of_ptr << "\n";
-                }
+                // if (print_profiles && i < profiles_to_print) {
+                //     *out_fd << curr_bwt_ch << ",";
+                //     for (auto x: curr_record)
+                //         *out_fd << x << ",";
+                //     *out_fd << of_ptr << "\n";
+                // }
                 prof_matrix[curr_bwt_ch].push_back(curr_record);
+            }
+        }
+
+        void read_doc_profiles_main_table_new_way(std::vector<std::vector<std::vector<uint64_t>>>& prof_matrix, 
+                                                  std::string input_file,
+                                                  std::string of_ptrs,
+                                                  std::string runcnt_file,
+                                                  std::vector<std::vector<std::vector<uint64_t>>>& old_matrix) {
+            /* load the document array profiles: main table and overflow pointers */
+            
+            // declare vectors to receive data
+            std::vector<uint16_t> main_table(this->r * (this->num_cols * 4 + 1));
+            std::vector<size_t> overflow_ptrs(this->r);
+            std::vector<uint64_t> true_ch_run_cnt(256);
+
+            // open all files
+            std::ifstream fin_main(input_file, std::ios::binary | std::ios::in);
+            fin_main.seekg(0, std::ios::beg);
+            std::ifstream fin_ptrs(of_ptrs, std::ios::binary | std::ios::in);
+            fin_ptrs.seekg(0, std::ios::beg);
+            std::ifstream fin_runcnt(runcnt_file, std::ios::binary | std::ios::in);
+            fin_runcnt.seekg(0, std::ios::beg);
+
+            // read in both files
+            fin_main.read(reinterpret_cast<char*>(main_table.data()), this->r * (this->num_cols * 4 + 1) * sizeof(uint16_t));
+            fin_ptrs.read(reinterpret_cast<char*>(overflow_ptrs.data()), this->r * sizeof(size_t));
+            fin_runcnt.read(reinterpret_cast<char*>(true_ch_run_cnt.data()), 256 * sizeof(uint64_t));
+
+            // reserve space for document array table to avoid reallocations
+            for(size_t i = 0; i < 256; i++) {
+                prof_matrix[i].resize(true_ch_run_cnt[i]); // second dimension
+                for(size_t j = 0; j < true_ch_run_cnt[i]; j++) {
+                    prof_matrix[i][j].resize(this->num_cols * 4 + 1);
+                    ASSERT((prof_matrix[i][j].capacity() == (this->num_cols * 4 + 1)), "issue with capacity of prof_matrix[i][j].");
+                }
+            }
+
+            // go through each run, and place it in corresponding bwt character list
+            size_t run_i = 0;
+            std::vector<size_t> curr_num_ch_runs(256, 0);
+
+            for (size_t pos = 0; pos < this->r * (this->num_cols * 4 + 1); pos += (this->num_cols * 4 + 1)) {
+                // get the current bwt run char
+                uint16_t curr_bwt_ch = main_table[pos];
+                ASSERT((curr_bwt_ch < 256), "invalid bwt character in tax_doc_query main_table read().");
+                
+                // get the run id for this bwt char to locate the right vector
+                size_t run_bwt_ch_i = curr_num_ch_runs[curr_bwt_ch];
+
+                // go through each value and place it directly in array
+                ASSERT((prof_matrix[curr_bwt_ch][run_bwt_ch_i].size() == (this->num_cols * 4 + 1)), "issue with size of prof_matrix[i][j].");
+                for (size_t j = 0; j < (this->num_cols * 4); j++) {
+                    prof_matrix[curr_bwt_ch][run_bwt_ch_i][j] = main_table[pos+j+1];
+                }
+                prof_matrix[curr_bwt_ch][run_bwt_ch_i][this->num_cols * 4] = overflow_ptrs[run_i];
+
+                // optional code: check and make sure they are equal to old version
+                // if (!std::equal(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin())) {
+                //     std::cout << "run i = " << run_i << std::endl;
+                //     std::copy(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+                //     std::copy(prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+
+                //     std::cout << "difference found!\n"; std::exit(1);
+                // }
+
+                // increment the num of runs for curr ch, and total run id
+                curr_num_ch_runs[curr_bwt_ch]++;
+                run_i++;
             }
         }
 
