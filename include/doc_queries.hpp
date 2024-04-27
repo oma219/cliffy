@@ -1294,14 +1294,15 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
                 dap_csv_file.open(output_path);
                 profiles_to_print = (num_profiles == 0 || num_profiles > num_runs) ? num_runs : num_profiles; 
             }
-            
-            // step 2: load in the entire document array profiles structures (1 columns for BWT + d columns of LCP values)
-            std::vector<uint16_t> main_table(num_runs * (num_docs + 1));
+
+            // step 2: open document array profiles file (1 columns for BWT + d columns of LCP values)
+            size_t chunk_size = 1000000 * (num_docs + 1);
+
+            std::vector<uint16_t> main_table_chunk(chunk_size);
             std::ifstream fin_main(input_file, std::ios::binary | std::ios::in);
 
             /* IMPORTANT: skip the first 8 bytes since that is the number of documents */
             fin_main.seekg(8, std::ios::beg);
-            fin_main.read(reinterpret_cast<char*>(main_table.data()), num_runs * (num_docs + 1) * sizeof(uint16_t));
 
             // step 3: load in the number of runs of each character
             std::vector<uint64_t> true_ch_run_cnt(256);
@@ -1323,43 +1324,58 @@ class doc_queries : ri::r_index<sparse_bv_type, rle_string_t>
             size_t run_i = 0;
             std::vector<size_t> curr_num_ch_runs(256, 0);
 
-            for (size_t pos = 0; pos < (num_runs * (num_docs + 1)); pos += (num_docs + 1)) {
-                // step 5a: get the current bwt run char
-                uint16_t curr_bwt_ch = main_table[pos];
-                ASSERT((curr_bwt_ch < 256), "invalid bwt character in tax_doc_query main_table read().");
-
-                // step 5b: get the run id for this bwt char to locate the right vector
-                size_t run_bwt_ch_i = curr_num_ch_runs[curr_bwt_ch];
-                ASSERT((run_bwt_ch_i < true_ch_run_cnt[curr_bwt_ch]), "run_bwt_ch_i is out of bounds.");
-
-                // step 5c: go through each value and place it directly in array
-                ASSERT((prof_matrix[curr_bwt_ch][run_bwt_ch_i].size() == (num_docs)), "issue with size of prof_matrix[i][j].");
-                for (size_t j = 0; j < (num_docs); j++) {
-                    prof_matrix[curr_bwt_ch][run_bwt_ch_i][j] = main_table[pos+j+1];
-
-                    // check if we want to print
-                    if (print_to_file && profiles_to_print) {
-                        if (j < (num_docs-1))
-                            dap_csv_file << main_table[pos+j+1] << ",";
-                        else
-                            dap_csv_file << main_table[pos+j+1] << "\n";
-                    }
+            for (size_t i = 0; i < (num_runs * (num_docs + 1)); i+= chunk_size) {
+                
+                 // step 5a: adjust the chunk size for the last chunk which may be smaller
+                if (i + chunk_size > num_runs * (num_docs + 1)) {
+                    chunk_size = (num_runs * (num_docs + 1)) - i;
+                    ASSERT((chunk_size % (num_docs + 1) == 0), "chunk size is not a multiple of num_docs + 1.");
+                    main_table_chunk.resize(chunk_size);
                 }
-                // keep decrementing until zero, this is size_t so don't want overflow
-                if (profiles_to_print > 0) profiles_to_print--;
 
-                // optional code: check and make sure they are equal to old version
-                // if (!std::equal(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin())) {
-                //     std::cout << "run i = " << run_i << std::endl;
-                //     std::copy(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
-                //     std::copy(prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+                // step 5b: read in a chunk of data
+                fin_main.read(reinterpret_cast<char*>(main_table_chunk.data()), chunk_size * sizeof(uint16_t));
 
-                //     std::cout << "difference found!\n"; std::exit(1);
-                // }
+                // step 5c: process the chunk
+                for (size_t pos = 0; pos < chunk_size; pos += (num_docs + 1)) {
+                    
+                    // step 5c (i): get the current bwt run char
+                    uint16_t curr_bwt_ch = main_table_chunk[pos];
+                    ASSERT((curr_bwt_ch < 256), "invalid bwt character in tax_doc_query main_table read().");
 
-                // step 5d: increment the num of runs for curr ch, and total run id
-                curr_num_ch_runs[curr_bwt_ch]++;
-                run_i++;
+                    // step 5c (ii): get the run id for this bwt char to locate the right vector
+                    size_t run_bwt_ch_i = curr_num_ch_runs[curr_bwt_ch];
+                    ASSERT((run_bwt_ch_i < true_ch_run_cnt[curr_bwt_ch]), "run_bwt_ch_i is out of bounds.");
+
+                    // step 5c (iii): go through each value and place it directly in array
+                    ASSERT((prof_matrix[curr_bwt_ch][run_bwt_ch_i].size() == (num_docs)), "issue with size of prof_matrix[i][j].");
+                    for (size_t j = 0; j < (num_docs); j++) {
+                        prof_matrix[curr_bwt_ch][run_bwt_ch_i][j] = main_table_chunk[pos+j+1];
+
+                        // check if we want to print
+                        if (print_to_file && profiles_to_print) {
+                            if (j < (num_docs-1))
+                                dap_csv_file << main_table_chunk[pos+j+1] << ",";
+                            else
+                                dap_csv_file << main_table_chunk[pos+j+1] << "\n";
+                        }
+                    }
+                    // keep decrementing until zero, this is size_t so don't want overflow
+                    if (profiles_to_print > 0) profiles_to_print--;
+
+                    // optional code: check and make sure they are equal to old version
+                    // if (!std::equal(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin())) {
+                    //     std::cout << "run i = " << run_i << std::endl;
+                    //     std::copy(old_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), old_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+                    //     std::copy(prof_matrix[curr_bwt_ch][run_bwt_ch_i].begin(), prof_matrix[curr_bwt_ch][run_bwt_ch_i].end(), std::ostream_iterator<uint16_t>(std::cout, " ")); std::cout << "\n";
+
+                    //     std::cout << "difference found!\n"; std::exit(1);
+                    // }
+
+                    // step 5d: increment the num of runs for curr ch, and total run id
+                    curr_num_ch_runs[curr_bwt_ch]++;
+                    run_i++;
+                }
             }
 
             // step 6: close file if opened in first place
