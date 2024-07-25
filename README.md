@@ -1,11 +1,17 @@
-# **Document Array Profiles**: document listing in compressed space [![DOI](https://zenodo.org/badge/535600494.svg)](https://zenodo.org/badge/latestdoi/535600494)
+# ⛰️ **Cliffy**: robust 16S rRNA classification [![DOI](https://zenodo.org/badge/535600494.svg)](https://zenodo.org/badge/latestdoi/535600494)
 
-This code is based on the [pfp-thresholds](https://github.com/maxrossi91/pfp-thresholds) repository written by [Massimiliano Rossi](https://github.com/maxrossi91). 
-This repository **builds a novel data-structure called *document array profiles* that allows users to list all the documents/classes that
-a particular exact match occurs**, theoretically described by Massimiliano Rossi. This data-structure is built based on the prefix-free parse of the 
-input text.
+### What is it?
+**Cliffy** is software tool that utilizes a **novel data-structure for document listing called document array profiles** in order to classify sequencing reads. Cliffy is capable of taxonomic classification (classification w.r.t to a tree) and multi-class classification.
 
-## Installation
+### How to install it?
+Currently, the only way to install Cliffy is by **installing from the GitHub repo**. Instructions are shown below. We are working on creating a Docker container as well as including it as a bioconda package.
+
+### How can I quickly get started?
+In the [wiki-page](https://github.com/oma219/cliffy/wiki) for this repo, we go through two different possible use-cases for Cliffy using data given in the repo. The first one is a multi-class classification scenario with 4 different genomes. And the second is performing taxonomic classification of 16S rRNA reads against the SILVA database.
+
+Follow the instructions in the wiki after installation, and write a [GitHub issue](https://github.com/oma219/cliffy/issues) if you have any questions/problems!
+
+## 🔨 Installation
 
 For starting out, use the commands below to download the repository and build the executable. After running the make command below,
 the `pfp_doc` executable will be found in the `build/` folder.
@@ -21,6 +27,7 @@ make install
 export PFPDOC_BUILD_DIR=$(pwd)
 ```
 
+<!---
 ## Getting started
 
 The basic workflow with `pfp_doc` is to (1) build the data-structure over an input text and then (2) run queries
@@ -74,3 +81,5 @@ Each line in the output file represents a single read in the pattern file. The i
 represent the substring in the read that were being search so `[0, 4]` represents a 5-bp string starting at position
  0 and including position 4. Then, the values in the braces represent the classes that the exact match
  occurs in, so `{0, 1}` means the 5-bp string occurs in document 0 and 1.
+
+ -->
