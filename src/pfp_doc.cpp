@@ -530,8 +530,8 @@ void parse_info_options(int argc, char** argv, PFPDocInfoOptions* opts) {
 
 int pfpdoc_build_usage() {
     /* prints out the usage information for the build method */
-    std::fprintf(stderr, "\npfp_doc build - builds the document array profiles using PFP.\n");
-    std::fprintf(stderr, "Usage: pfp_doc build [options]\n\n");
+    std::fprintf(stderr, "\n%s build - builds the document array profiles using PFP.\n", TOOL_NAME);
+    std::fprintf(stderr, "Usage: %s build [options]\n\n", TOOL_NAME);
 
     std::fprintf(stderr, "Options:\n");
     std::fprintf(stderr, "\t%-31sprints this usage message\n", "-h, --help");
@@ -564,8 +564,8 @@ int pfpdoc_build_usage() {
 
 int pfpdoc_run_usage() {
     /* prints out the usage information for the run method */
-    std::fprintf(stderr, "\npfp_doc run - processes a set of reads using the document array profiles.\n");
-    std::fprintf(stderr, "Usage: pfp_doc run [options]\n\n");
+    std::fprintf(stderr, "\n%s run - processes a set of reads using the document array profiles.\n", TOOL_NAME);
+    std::fprintf(stderr, "Usage: %s run [options]\n\n", TOOL_NAME);
 
     std::fprintf(stderr, "Options:\n");
     std::fprintf(stderr, "\t%-31sprints this usage message\n", "-h, --help");
@@ -611,8 +611,8 @@ int pfpdoc_info_usage() {
 
 int pfpdoc_usage() {
     /* Prints the usage information for pfp_doc */
-    std::fprintf(stderr, "\npfp_doc has different sub-commands to run:\n");
-    std::fprintf(stderr, "Usage: pfp_doc <sub-command> [options]\n\n");
+    std::fprintf(stderr, "\n%s has different sub-commands to run:\n", TOOL_NAME);
+    std::fprintf(stderr, "Usage: %s <sub-command> [options]\n\n", TOOL_NAME);
 
     std::fprintf(stderr, "Commands:\n");
     std::fprintf(stderr, "\tbuild\tbuilds the document profile data-structure\n");

@@ -50,7 +50,7 @@
 enum ref_type {DNA, DNA_MINIMIZER, MINIMIZER};
 
 /* Definitions */
-#define PFPDOC_VERSION "1.0.8"
+#define PFPDOC_VERSION "2.0.0"
 #define TOOL_NAME "cliffy"
 #define DOCWIDTH 2
 #define MAXQUEUELENGTH 1000000
