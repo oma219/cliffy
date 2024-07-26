@@ -9,6 +9,9 @@ Currently, the only way to install Cliffy is by **installing from the GitHub rep
 ### How can I quickly get started?
 In the [wiki-page](https://github.com/oma219/cliffy/wiki) for this repo, we go through two different possible use-cases for Cliffy using data given in the repo. The first one is a multi-class classification scenario with 4 different genomes. And the second is performing taxonomic classification of 16S rRNA reads against the SILVA database.
 
+- Example 1: Multi-class classification of *Bacillus* reads
+- Example 2: Taxonomic classification of *16S rRNA* reads
+
 Follow the instructions in the wiki after installation, and write a [GitHub issue](https://github.com/oma219/cliffy/issues) if you have any questions/problems!
 
 ## 🔨 Installation
